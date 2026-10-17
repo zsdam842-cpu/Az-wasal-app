@@ -1,21 +1,20 @@
-
 package com.wasal.app.data.network
 
 object ServerConfig {
 
-    // خادم الرسائل والحسابات وجهات الاتصال والمحادثات
+    // خادم الحسابات والرسائل وجهات الاتصال والمحادثات
     const val CORE_SERVER_URL =
-        "https://wasal-media-server-production.up.railway.app"
+        "https://az-wasal-server-production.up.railway.app"
 
     // خادم الوسائط والمكالمات والصور والفيديو والصوت
     const val MEDIA_CALLS_SERVER_URL =
-        "https://wasal-server-production.up.railway.app"
+        "https://az-wasal-media-server-production.up.railway.app"
 
     // مسارات Socket.IO
     const val CORE_SOCKET_PATH = "/socket.io"
     const val MEDIA_SOCKET_PATH = "/socket.io"
 
-    // واجهات خادم الرسائل
+    // واجهات خادم الحسابات والرسائل
     const val AUTH_ENDPOINT = "/api/auth"
     const val USERS_ENDPOINT = "/api/users"
     const val CONVERSATIONS_ENDPOINT = "/api/conversations"
