@@ -198,7 +198,7 @@ private fun WasalHomeScreen(
     }
 
     val profileRepository = remember {
-        ProfileRepository()
+        ProfileRepository(authDataStore)
     }
 
     val scope = rememberCoroutineScope()
