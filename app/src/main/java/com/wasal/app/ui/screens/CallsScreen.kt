@@ -41,7 +41,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.data.local.AuthDataStore
-import com.wasal.app.data.network.CoreApiClient
+import com.wasal.app.data.network.MediaApiClient
+import com.wasal.app.data.network.ServerConfig
 import com.wasal.app.data.repository.AuthenticatedApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -67,6 +68,7 @@ fun CallsScreen(
     authDataStore: AuthDataStore
 ) {
     val apiClient = remember { AuthenticatedApiClient(authDataStore) }
+    val mediaApiClient = remember { MediaApiClient() }
     val scope = rememberCoroutineScope()
 
     var calls by remember { mutableStateOf<List<CallLogItem>>(emptyList()) }
@@ -81,7 +83,7 @@ fun CallsScreen(
             try {
                 val result = withContext(Dispatchers.IO) {
                     apiClient.execute { token ->
-                        CoreApiClient.get("/api/calls", token)
+                        mediaApiClient.get(ServerConfig.CALLS_ENDPOINT, token)
                     }
                 }
 
