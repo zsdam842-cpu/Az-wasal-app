@@ -172,6 +172,10 @@ class ChatRepository(
         }
     }
 
+    /** المحادثات المحفوظة على الجهاز — تُعرض فورًا قبل أي اتصال بالشبكة. */
+    suspend fun cachedConversations(userId: String): List<Conversation> =
+        readCache(userId).orEmpty()
+
     private fun cacheKey(userId: String): String {
         return "conversations_$userId"
     }

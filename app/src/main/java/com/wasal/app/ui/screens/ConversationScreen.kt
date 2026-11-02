@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -67,7 +68,7 @@ private val ChatBubbleOther = Color(0xFF172342)
 private val ChatAccent = Color(0xFF6C8CFF)
 private val ChatText = Color(0xFFF4F6FF)
 private val ChatMuted = Color(0xFF9AA7C7)
-private val ReadStatusColor = Color(0xFF55D6FF)
+private val ReadStatusColor = Color(0xFF25D366)
 private val FailedStatusColor = Color(0xFFFF6B6B)
 
 @Composable
@@ -504,113 +505,117 @@ private fun MessageBubble(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .background(
-                    color = if (message.isMine) {
-                        ChatBubbleMine
-                    } else {
-                        ChatBubbleOther
-                    },
-                    shape = RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (message.isMine) 4.dp else 16.dp,
-                        bottomEnd = if (message.isMine) 16.dp else 4.dp
-                    )
-                )
-                .padding(horizontal = 13.dp, vertical = 9.dp)
+                .widthIn(max = 300.dp)
+                .padding(vertical = 2.dp),
+            horizontalAlignment = if (message.isMine) Alignment.Start else Alignment.End
         ) {
-            when (message.type.lowercase()) {
-                "deleted" -> {
-                    Text(
-                        text = "هذه الرسالة محذوفة",
-                        color = ChatMuted,
-                        fontSize = 15.sp,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                    )
-                }
-
-                "image" -> {
-                    MessageImage(
-                        imageUrl = message.content,
-                        accessToken = mediaAccessToken
-                    )
-                }
-
-                "video" -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.PlayCircle,
-                            contentDescription = null,
-                            tint = ChatAccent
+            // الفقاعة بحجم المحتوى، لا بعرض الشاشة
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = if (message.isMine) {
+                            ChatBubbleMine
+                        } else {
+                            ChatBubbleOther
+                        },
+                        shape = RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (message.isMine) 4.dp else 16.dp,
+                            bottomEnd = if (message.isMine) 16.dp else 4.dp
                         )
-
-                        Spacer(Modifier.width(6.dp))
-
+                    )
+                    .padding(horizontal = 13.dp, vertical = 9.dp)
+            ) {
+                when (message.type.lowercase()) {
+                    "deleted" -> {
                         Text(
-                            text = "فيديو مرفق",
+                            text = "هذه الرسالة محذوفة",
+                            color = ChatMuted,
+                            fontSize = 15.sp,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
+
+                    "image" -> {
+                        MessageImage(
+                            imageUrl = message.content,
+                            accessToken = mediaAccessToken
+                        )
+                    }
+
+                    "video" -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.PlayCircle,
+                                contentDescription = null,
+                                tint = ChatAccent
+                            )
+
+                            Spacer(Modifier.width(6.dp))
+
+                            Text(
+                                text = "فيديو مرفق",
+                                color = ChatText,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        AttachmentLink(message.content)
+                    }
+
+                    "audio", "voice" -> {
+                        VoicePlayer(
+                            url = message.content,
+                            isMine = message.isMine
+                        )
+                    }
+
+                    "file" -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Description,
+                                contentDescription = null,
+                                tint = ChatAccent
+                            )
+
+                            Spacer(Modifier.width(6.dp))
+
+                            Text(
+                                text = "ملف مرفق",
+                                color = ChatText
+                            )
+                        }
+
+                        AttachmentLink(message.content)
+                    }
+
+                    else -> {
+                        Text(
+                            text = message.content,
                             color = ChatText,
-                            fontWeight = FontWeight.Medium
+                            fontSize = 15.sp
                         )
                     }
-
-                    AttachmentLink(message.content)
-                }
-
-                "audio", "voice" -> {
-                    VoicePlayer(
-                        url = message.content,
-                        isMine = message.isMine
-                    )
-                }
-
-                "file" -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Description,
-                            contentDescription = null,
-                            tint = ChatAccent
-                        )
-
-                        Spacer(Modifier.width(6.dp))
-
-                        Text(
-                            text = "ملف مرفق",
-                            color = ChatText
-                        )
-                    }
-
-                    AttachmentLink(message.content)
-                }
-
-                else -> {
-                    Text(
-                        text = message.content,
-                        color = ChatText,
-                        fontSize = 15.sp
-                    )
                 }
             }
 
-            Spacer(Modifier.size(4.dp))
-
+            // تفاصيل الرسالة (الوقت وحالة التسليم والحذف) خارج الفقاعة
             Row(
-                modifier = Modifier.align(Alignment.End),
+                modifier = Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 if (message.isMine && !message.deletedForEveryone) {
                     IconButton(
-                        onClick = {
-                            onDeleteMessage(message, true)
-                        },
-                        modifier = Modifier.size(20.dp)
+                        onClick = { onDeleteMessage(message, true) },
+                        modifier = Modifier.size(18.dp)
                     ) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "حذف الرسالة لدى الجميع",
                             tint = ChatMuted,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }

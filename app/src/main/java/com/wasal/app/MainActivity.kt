@@ -40,6 +40,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.os.Build
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
+import com.wasal.app.util.Notifications
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -179,6 +185,64 @@ private fun WasalHomeScreen(
         AuthDataStore(context)
     }
 
+    // إشعارات الرسائل الواردة أثناء وجود المستخدم في تطبيق آخر
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+
+    DisposableEffect(authDataStore) {
+        SocketService.init(authDataStore)
+        SocketService.connect()
+
+        val notificationListener: (JSONObject) -> Unit = { payload ->
+            val senderCode = payload.optString("senderCode")
+            val conversationId = payload.optString("conversationId")
+
+            val viewingNow = selectedConversation?.id == conversationId &&
+                lifecycleState == Lifecycle.State.RESUMED
+
+            val senderIsMe = conversations.any { it.id == conversationId } &&
+                payload.optString("receiverCode").isNotBlank() && senderCode.isBlank()
+
+            if (!viewingNow && !senderIsMe) {
+                val type = payload.optString("type", "text")
+                val content = payload.optString("content")
+                val body = when (type) {
+                    "image" -> "📷 صورة"
+                    "video" -> "🎬 فيديو"
+                    "voice", "audio" -> "🎤 رسالة صوتية"
+                    "file" -> "📄 ملف"
+                    "link" -> content.ifBlank { "🔗 رابط" }
+                    else -> content.ifBlank { "رسالة جديدة" }
+                }
+                val senderName = conversations
+                    .firstOrNull { it.id == conversationId }
+                    ?.title
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "رسالة جديدة"
+
+                Notifications.showMessage(context, senderName, body)
+            }
+        }
+
+        SocketService.on("message", notificationListener)
+
+        onDispose { }
+    }
+
     val darkModeState by settingsDataStore.darkMode
         .collectAsState(initial = true)
 
@@ -221,6 +285,18 @@ private fun WasalHomeScreen(
     LaunchedEffect(authDataStore) {
         isLoading = true
         errorMessage = null
+
+        // عرض المحادثات المحفوظة فورًا حتى يعمل التطبيق بلا إنترنت وبدون شاشة تحميل
+        val cachedUserId = authDataStore.userId.first().orEmpty()
+        if (cachedUserId.isNotBlank()) {
+            val cached = withContext(Dispatchers.IO) {
+                chatRepository.cachedConversations(cachedUserId)
+            }
+            if (cached.isNotEmpty()) {
+                conversations = cached
+                isLoading = false
+            }
+        }
 
         try {
             var token = authDataStore.accessToken.first().orEmpty()
@@ -792,8 +868,47 @@ private fun ConversationFlow(
             }
         }
 
+        // حالة التسليم والقراءة: تُحدَّث علامات الصح من أحداث الخادم
+        val deliveredListener: (JSONObject) -> Unit = { payload ->
+            val ids = payload.optJSONArray("messageIds")
+            val idSet = buildSet {
+                if (ids != null) {
+                    for (i in 0 until ids.length()) add(ids.optString(i))
+                }
+            }
+            if (idSet.isNotEmpty()) {
+                messages = messages.map { m ->
+                    if (m.isMine && m.id in idSet && m.status != MessageStatus.READ) {
+                        m.copy(status = MessageStatus.DELIVERED)
+                    } else {
+                        m
+                    }
+                }
+            }
+        }
+
+        val readListener: (JSONObject) -> Unit = { payload ->
+            val ids = payload.optJSONArray("messageIds")
+            val idSet = buildSet {
+                if (ids != null) {
+                    for (i in 0 until ids.length()) add(ids.optString(i))
+                }
+            }
+            if (idSet.isNotEmpty()) {
+                messages = messages.map { m ->
+                    if (m.isMine && m.id in idSet) {
+                        m.copy(status = MessageStatus.READ)
+                    } else {
+                        m
+                    }
+                }
+            }
+        }
+
         SocketService.on("message", messageListener)
         SocketService.on("typing", typingListener)
+        SocketService.on("message_delivered", deliveredListener)
+        SocketService.on("message_read", readListener)
 
         onDispose { }
     }
