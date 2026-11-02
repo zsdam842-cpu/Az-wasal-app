@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -96,6 +98,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(SetBackground)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             Text(
@@ -432,6 +435,55 @@ fun SettingsScreen(
                 color = SetMuted,
                 fontSize = 12.sp
             )
+
+            Spacer(Modifier.height(18.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SetCard, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "عن التطبيق",
+                    color = SetMuted,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = "وصال — تطبيق المحادثات",
+                    color = SetText,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(6.dp))
+
+                Text(
+                    text = "مطور البرنامج",
+                    color = SetMuted,
+                    fontSize = 12.sp
+                )
+
+                Spacer(Modifier.height(2.dp))
+
+                Text(
+                    text = "صدام عبده طه أحمد الصنعاني",
+                    color = SetAccent,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(6.dp))
+
+                Text(
+                    text = "الإصدار 1.5",
+                    color = SetMuted,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }
