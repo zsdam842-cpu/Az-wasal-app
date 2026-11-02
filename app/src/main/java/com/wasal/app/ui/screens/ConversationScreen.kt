@@ -2,6 +2,7 @@ package com.wasal.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
@@ -62,9 +65,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import coil.compose.SubcomposeAsyncImage
 import com.wasal.app.data.model.Message
 import com.wasal.app.data.model.MessageStatus
+import com.wasal.app.data.model.isLocalPending
 
 private val ChatBackground = Color(0xFF0B1020)
 private val ChatHeader = Color(0xFF101B3A)
@@ -92,6 +97,7 @@ fun ConversationScreen(
     isOtherTyping: Boolean = false,
     onDraftChanged: (Boolean) -> Unit = {},
     onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> },
+    onRetryMedia: (Message) -> Unit = {},
     onVoiceRecordStart: () -> Unit = {},
     onVoiceRecordStop: () -> Unit = {},
     isRecordingVoice: Boolean = false,
@@ -306,7 +312,8 @@ fun ConversationScreen(
                             MessageBubble(
                                 message = message,
                                 mediaAccessToken = mediaAccessToken,
-                                onDeleteMessage = onDeleteMessage
+                                onDeleteMessage = onDeleteMessage,
+                                onRetryMedia = onRetryMedia
                             )
                         }
                     }
@@ -633,7 +640,8 @@ private fun VoicePlayer(
 private fun MessageBubble(
     message: Message,
     mediaAccessToken: String,
-    onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> }
+    onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> },
+    onRetryMedia: (Message) -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -679,29 +687,34 @@ private fun MessageBubble(
 
                     "image" -> {
                         MessageImage(
-                            imageUrl = message.content,
-                            accessToken = mediaAccessToken
+                            imageUrl = message.localUri ?: message.content,
+                            accessToken = if (message.localUri == null) {
+                                mediaAccessToken
+                            } else {
+                                ""
+                            },
+                            pending = message.localUri != null &&
+                                message.status == MessageStatus.SENDING,
+                            failed = message.localUri != null &&
+                                message.status == MessageStatus.FAILED,
+                            onRetry = { onRetryMedia(message) }
                         )
                     }
 
                     "video" -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.PlayCircle,
-                                contentDescription = null,
-                                tint = ChatAccent
-                            )
-
-                            Spacer(Modifier.width(6.dp))
-
-                            Text(
-                                text = "فيديو مرفق",
-                                color = ChatText,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        AttachmentLink(message.content)
+                        MessageVideo(
+                            videoUrl = message.localUri ?: message.content,
+                            accessToken = if (message.localUri == null) {
+                                mediaAccessToken
+                            } else {
+                                ""
+                            },
+                            pending = message.localUri != null &&
+                                message.status == MessageStatus.SENDING,
+                            failed = message.localUri != null &&
+                                message.status == MessageStatus.FAILED,
+                            onRetry = { onRetryMedia(message) }
+                        )
                     }
 
                     "audio", "voice" -> {
@@ -746,7 +759,10 @@ private fun MessageBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                if (message.isMine && !message.deletedForEveryone) {
+                if (message.isMine &&
+                    !message.deletedForEveryone &&
+                    !message.isLocalPending
+                ) {
                     IconButton(
                         onClick = { onDeleteMessage(message, true) },
                         modifier = Modifier.size(18.dp)
@@ -779,7 +795,10 @@ private fun MessageBubble(
 @Composable
 private fun MessageImage(
     imageUrl: String,
-    accessToken: String
+    accessToken: String,
+    pending: Boolean = false,
+    failed: Boolean = false,
+    onRetry: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -803,31 +822,197 @@ private fun MessageImage(
             .build()
     }
 
-    SubcomposeAsyncImage(
-        model = imageRequest,
-        contentDescription = "صورة مرسلة",
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 320.dp)
-            .clip(RoundedCornerShape(12.dp)),
-        loading = {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = imageRequest,
+            contentDescription = "صورة مرسلة",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 320.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            loading = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 220.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = ChatAccent,
+                        strokeWidth = 2.dp
+                    )
+                }
+            },
+            error = {
+                ImageLoadError()
+            }
+        )
+
+        if (pending || failed) {
+            MediaSendOverlay(
+                failed = failed,
+                onRetry = onRetry,
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        }
+    }
+}
+
+@Composable
+private fun MessageVideo(
+    videoUrl: String,
+    accessToken: String,
+    pending: Boolean = false,
+    failed: Boolean = false,
+    onRetry: () -> Unit = {}
+) {
+    val context = LocalContext.current
+
+    if (videoUrl.isBlank()) {
+        VideoPlaceholder()
+        return
+    }
+
+    val videoRequest = remember(videoUrl, accessToken) {
+        ImageRequest.Builder(context)
+            .data(videoUrl)
+            .videoFrameMillis(500)
+            .apply {
+                if (accessToken.isNotBlank()) {
+                    addHeader(
+                        "Authorization",
+                        "Bearer $accessToken"
+                    )
+                }
+            }
+            .build()
+    }
+
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = videoRequest,
+            contentDescription = "فيديو مرسل",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 160.dp, max = 300.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            loading = { VideoPlaceholder() },
+            error = { VideoPlaceholder() }
+        )
+
+        if (pending || failed) {
+            MediaSendOverlay(
+                failed = failed,
+                onRetry = onRetry,
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        } else {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp, max = 220.dp),
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f)),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(
-                    color = ChatAccent,
-                    strokeWidth = 2.dp
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = "فيديو",
+                    tint = ChatText,
+                    modifier = Modifier.size(40.dp)
                 )
             }
-        },
-        error = {
-            ImageLoadError()
         }
-    )
+    }
+}
+
+/**
+ * غطاء شفاف فوق المرفق أثناء الرفع: دوّار بسيط مثل واتساب،
+ * وعند الفشل زر إعادة محاولة بدل نص أعلى الشاشة.
+ */
+@Composable
+private fun MediaSendOverlay(
+    failed: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = if (failed) 0.55f else 0.35f))
+            .then(
+                if (failed) {
+                    Modifier.clickable { onRetry() }
+                } else {
+                    Modifier
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (failed) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "إعادة المحاولة",
+                    tint = ChatText,
+                    modifier = Modifier.size(30.dp)
+                )
+
+                Spacer(Modifier.size(6.dp))
+
+                Text(
+                    text = "تعذر الإرسال — اضغط للمحاولة مجددًا",
+                    color = ChatText,
+                    fontSize = 12.sp
+                )
+            }
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size(30.dp)
+                )
+
+                Spacer(Modifier.size(8.dp))
+
+                Text(
+                    text = "جارٍ الإرسال…",
+                    color = ChatText,
+                    fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(170.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(ChatBubbleOther),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.PlayCircle,
+            contentDescription = null,
+            tint = ChatAccent,
+            modifier = Modifier.size(38.dp)
+        )
+    }
 }
 
 @Composable

@@ -53,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1072,12 +1073,39 @@ private fun ConversationFlow(
         }
     }
 
-    fun sendSelectedMedia(uri: Uri?) {
-        if (uri == null || isSending) return
+    // مسارات الوسائط المعلّقة: تُستخدم للمعاينة الفورية وإعادة المحاولة
+    val pendingMediaUris = remember(conversation.id) {
+        mutableStateMapOf<String, Uri>()
+    }
+
+    fun localTimestamp(): String {
+        val format = java.text.SimpleDateFormat(
+            "yyyy-MM-dd HH:mm:ss",
+            java.util.Locale.US
+        )
+        format.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        return format.format(java.util.Date())
+    }
+
+    fun mediaTypeOf(mimeType: String): String = when {
+        mimeType.startsWith("image/") -> "image"
+        mimeType.startsWith("video/") -> "video"
+        mimeType.startsWith("audio/") -> "voice"
+        else -> "file"
+    }
+
+    fun uploadPendingMedia(localId: String) {
+        val uri = pendingMediaUris[localId] ?: return
 
         scope.launch {
-            isSending = true
-            statusMessage = "جارٍ رفع المرفق..."
+            // أثناء الرفع تُعرض الفقاعة المحلية بحالة "جارٍ الإرسال"
+            messages = messages.map { current ->
+                if (current.id == localId) {
+                    current.copy(status = MessageStatus.SENDING)
+                } else {
+                    current
+                }
+            }
 
             try {
                 val token = authDataStore.accessToken
@@ -1104,8 +1132,6 @@ private fun ConversationFlow(
                     throw it
                 }
 
-                statusMessage = "تم رفع الملف، جارٍ إرسال الرسالة..."
-
                 val sent = withContext(Dispatchers.IO) {
                     messageRepository.sendMediaMessage(
                         conversationId = conversation.id,
@@ -1119,15 +1145,51 @@ private fun ConversationFlow(
                     throw it
                 }
 
-                messages = messages + message
-                statusMessage = "تم إرسال المرفق."
+                pendingMediaUris.remove(localId)
+
+                // استبدال المعاينة المحلية بالرسالة الحقيقية (بلا تكرار)
+                messages = messages.filterNot {
+                    it.id == localId || it.id == message.id
+                } + message
             } catch (e: Exception) {
-                statusMessage = e.message
-                    ?: "تعذر إرسال المرفق."
-            } finally {
-                isSending = false
+                // لا نص في أعلى الشاشة: الفقاعة نفسها تعرض الفشل وإعادة المحاولة
+                messages = messages.map { current ->
+                    if (current.id == localId) {
+                        current.copy(status = MessageStatus.FAILED)
+                    } else {
+                        current
+                    }
+                }
+                statusMessage = null
             }
         }
+    }
+
+    fun sendSelectedMedia(uri: Uri?) {
+        if (uri == null) return
+
+        val mimeType = runCatching {
+            context.contentResolver.getType(uri)
+        }.getOrNull().orEmpty()
+
+        val type = mediaTypeOf(mimeType)
+
+        val localId = "local-${java.util.UUID.randomUUID()}"
+
+        pendingMediaUris[localId] = uri
+
+        messages = messages + Message(
+            id = localId,
+            content = "",
+            isMine = true,
+            time = localTimestamp(),
+            type = type,
+            status = MessageStatus.SENDING,
+            localUri = uri.toString()
+        )
+
+        statusMessage = null
+        uploadPendingMedia(localId)
     }
 
     val galleryPicker = rememberLauncherForActivityResult(
@@ -1225,6 +1287,11 @@ private fun ConversationFlow(
             }
         },
         onArchive = onArchive,
+        onRetryMedia = { message ->
+            if (messages.any { it.id == message.id }) {
+                uploadPendingMedia(message.id)
+            }
+        },
         onDeleteMessage = { message, forEveryone ->
             scope.launch {
                 try {

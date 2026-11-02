@@ -8,8 +8,13 @@ data class Message(
     val type: String = "text",
     val status: MessageStatus = MessageStatus.SENT,
     val senderCode: String = "",
-    val deletedForEveryone: Boolean = false
+    val deletedForEveryone: Boolean = false,
+    // معاينة محلية (صورة/فيديو) تُعرض لحظة الإرسال قبل رفع الملف
+    val localUri: String? = null
 )
+
+val Message.isLocalPending: Boolean
+    get() = id.startsWith("local-")
 
 enum class MessageStatus {
     SENDING,

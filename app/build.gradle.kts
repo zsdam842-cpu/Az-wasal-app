@@ -12,8 +12,8 @@ android {
         applicationId = "com.wasal.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
@@ -46,6 +46,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-video:2.7.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.socket:socket.io-client:2.1.0")
