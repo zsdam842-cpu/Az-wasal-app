@@ -158,7 +158,13 @@ class ChatRepository(
                         title = title,
                         lastMessage = lastMessage,
                         time = time,
-                        unreadCount = item.optInt("unreadCount", 0)
+                        unreadCount = item.optInt("unreadCount", 0),
+                        avatarUrl = item.optJSONObject("user")
+                            ?.optString("avatarUrl")
+                            ?.takeIf { it.isNotBlank() && it != "null" },
+                        bio = item.optJSONObject("user")
+                            ?.optString("bio")
+                            .orEmpty()
                     )
                 )
             }
@@ -227,6 +233,10 @@ class ChatRepository(
                 conversations.add(
                     Conversation(
                         id = id,
+                        avatarUrl = item.optJSONObject("user")
+                            ?.optString("avatarUrl")
+                            ?.takeIf { it.isNotBlank() && it != "null" },
+                        bio = item.optJSONObject("user")?.optString("bio").orEmpty(),
                         title = item.optString(
                             "title",
                             "محادثة وصال"

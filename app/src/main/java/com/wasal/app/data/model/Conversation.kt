@@ -5,5 +5,7 @@ data class Conversation(
     val title: String,
     val lastMessage: String = "",
     val time: String = "",
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
+    val avatarUrl: String? = null,
+    val bio: String = ""
 )

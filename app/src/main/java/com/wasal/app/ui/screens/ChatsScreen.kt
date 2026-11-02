@@ -41,12 +41,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.data.model.Conversation
+import com.wasal.app.ui.components.WasalAvatar
 
-private val Background = Color(0xFF0B1020)
-private val CardColor = Color(0xFF172342)
-private val Accent = Color(0xFF6C8CFF)
-private val MainText = Color(0xFFF4F6FF)
-private val MutedText = Color(0xFF9AA7C7)
+private val Background = Color(0xFF000E26)
+private val CardColor = Color(0xFF001636)
+private val Accent = Color(0xFF2BA0FF)
+private val MainText = Color(0xFFEAF3FF)
+private val MutedText = Color(0xFF8FA9C9)
 
 @Composable
 fun ChatsScreen(
@@ -210,25 +211,13 @@ private fun ConversationRow(
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .background(
-                    color = Accent.copy(alpha = 0.18f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = conversation.title
-                    .trim()
-                    .take(1)
-                    .ifBlank { "و" },
-                color = Accent,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        WasalAvatar(
+            name = conversation.title,
+            avatarUrl = conversation.avatarUrl,
+            size = 54.dp,
+            background = Accent.copy(alpha = 0.18f),
+            accent = Accent
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 

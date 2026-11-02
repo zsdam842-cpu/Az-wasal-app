@@ -38,6 +38,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -73,7 +80,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.graphics.BitmapFactory
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -95,22 +108,28 @@ import coil.compose.SubcomposeAsyncImage
 import com.wasal.app.data.model.Message
 import com.wasal.app.data.model.MessageStatus
 import com.wasal.app.data.model.isLocalPending
+import com.wasal.app.ui.components.WasalAvatar
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val ChatBackground = Color(0xFF0B1020)
-private val ChatHeader = Color(0xFF101B3A)
-private val ChatBubbleMine = Color(0xFF344E9A)
-private val ChatBubbleOther = Color(0xFF172342)
-private val ChatAccent = Color(0xFF6C8CFF)
-private val ChatText = Color(0xFFF4F6FF)
-private val ChatMuted = Color(0xFF9AA7C7)
-private val ReadStatusColor = Color(0xFF25D366)
+private val ChatBackground = Color(0xFF000E26)
+private val ChatHeader = Color(0xFF001636)
+private val ChatBubbleMine = Color(0xFF0A2A52)
+private val ChatBubbleOther = Color(0xFF0E2E5D)
+private val ChatAccent = Color(0xFF2BA0FF)
+private val ChatText = Color(0xFFEAF3FF)
+private val ChatMuted = Color(0xFF8FA9C9)
+private val ReadStatusColor = Color(0xFF2BA0FF)
 private val FailedStatusColor = Color(0xFFFF6B6B)
+private val QuoteGreen = Color(0xFF00BB85)
+private val QuoteBackground = Color(0xFF00152F)
+private val InputPill = Color(0xFF001B3C)
 
 @Composable
 fun ConversationScreen(
     title: String,
+    otherAvatarUrl: String? = null,
+    otherBio: String = "",
     messages: List<Message> = emptyList(),
     onBack: () -> Unit = {},
     onSendMessage: (String, String?) -> Unit = { _, _ -> },
@@ -143,6 +162,8 @@ fun ConversationScreen(
     var editDraft by remember { mutableStateOf("") }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
     var lastTypingState by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var localHint by remember { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
     val listState = rememberLazyListState()
 
@@ -159,10 +180,26 @@ fun ConversationScreen(
     CompositionLocalProvider(
         LocalLayoutDirection provides LayoutDirection.Rtl
     ) {
+        val patternBrush = remember(context) {
+            val bitmap = BitmapFactory.decodeResource(
+                context.resources,
+                com.wasal.app.R.drawable.chat_pattern
+            )
+
+            ShaderBrush(
+                ImageShader(
+                    bitmap.asImageBitmap(),
+                    TileMode.Repeated,
+                    TileMode.Repeated
+                )
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(ChatBackground)
+                .drawBehind { drawRect(brush = patternBrush) }
                 .imePadding()
         ) {
             Row(
@@ -180,20 +217,13 @@ fun ConversationScreen(
                     )
                 }
 
-                Surface(
-                    modifier = Modifier.size(42.dp),
-                    shape = CircleShape,
-                    color = ChatBubbleOther
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = title.trim().take(1).ifBlank { "و" },
-                            color = ChatAccent,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                WasalAvatar(
+                    name = title,
+                    avatarUrl = otherAvatarUrl,
+                    size = 42.dp,
+                    background = ChatBubbleOther,
+                    accent = ChatAccent
+                )
 
                 Spacer(Modifier.width(10.dp))
 
@@ -206,13 +236,39 @@ fun ConversationScreen(
                     )
 
                     Text(
-                        text = if (isOtherTyping) {
-                            "جارٍ الكتابة…"
-                        } else {
-                            "محادثة وصال"
+                        text = when {
+                            isOtherTyping -> "جارٍ الكتابة…"
+                            otherBio.isNotBlank() -> otherBio
+                            else -> "محادثة وصال"
                         },
                         color = if (isOtherTyping) ChatAccent else ChatMuted,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        localHint = "مكالمات الفيديو ستُضاف في تحديث قادم."
+                    }
+                ) {
+                    Icon(
+                        Icons.Default.Videocam,
+                        contentDescription = "مكالمة فيديو",
+                        tint = ChatText
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        localHint = "المكالمات الصوتية ستُضاف في تحديث قادم."
+                    }
+                ) {
+                    Icon(
+                        Icons.Default.Call,
+                        contentDescription = "مكالمة صوتية",
+                        tint = ChatText
                     )
                 }
 
@@ -286,9 +342,11 @@ fun ConversationScreen(
                 }
             }
 
-            if (statusMessage != null) {
+            val bannerText = localHint ?: statusMessage
+
+            if (bannerText != null) {
                 Text(
-                    text = statusMessage,
+                    text = bannerText,
                     color = ChatAccent,
                     fontSize = 12.sp,
                     modifier = Modifier
@@ -467,119 +525,144 @@ fun ConversationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(ChatHeader)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = onAttachmentClick,
-                    enabled = !isSending
-                ) {
-                    Icon(
-                        Icons.Default.AttachFile,
-                        contentDescription = "إرفاق صورة أو فيديو أو ملف",
-                        tint = ChatAccent
-                    )
-                }
-
-                BasicTextField(
-                    value = draft,
-                    onValueChange = {
-                        draft = it
-
-                        val typingNow = it.isNotBlank()
-                        if (typingNow != lastTypingState) {
-                            lastTypingState = typingNow
-                            onDraftChanged(typingNow)
-                        }
-                    },
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .background(
-                            ChatBubbleOther,
-                            RoundedCornerShape(22.dp)
-                        )
-                        .padding(horizontal = 16.dp, vertical = 13.dp),
-                    enabled = !isSending,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = ChatText,
-                        fontSize = 15.sp
-                    ),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
-                        ChatAccent
-                    ),
-                    decorationBox = { innerTextField ->
-                        Box {
-                            if (draft.isEmpty()) {
-                                Text(
-                                    text = if (replyTarget != null) {
-                                        "اكتب ردًا..."
-                                    } else {
-                                        "اكتب رسالتك..."
-                                    },
-                                    color = ChatMuted,
-                                    fontSize = 14.sp
-                                )
-                            }
+                        .size(50.dp)
+                        .clip(CircleShape)
+                        .background(ChatAccent)
+                        .clickable {
+                            when {
+                                isRecordingVoice -> onVoiceRecordStop()
 
-                            innerTextField()
-                        }
+                                draft.isNotBlank() && !isSending -> {
+                                    onSendMessage(draft.trim(), replyTarget?.id)
+                                    draft = ""
+                                    onReply(null)
+                                }
+
+                                !isSending -> onVoiceRecordStart()
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    when {
+                        isRecordingVoice -> Icon(
+                            Icons.Default.Stop,
+                            contentDescription = "إيقاف التسجيل وإرسال الرسالة الصوتية",
+                            tint = Color.White
+                        )
+
+                        isSending -> CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+
+                        draft.isNotBlank() -> Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "إرسال",
+                            tint = Color.White
+                        )
+
+                        else -> Icon(
+                            Icons.Default.Mic,
+                            contentDescription = "تسجيل رسالة صوتية",
+                            tint = Color.White
+                        )
                     }
-                )
+                }
 
                 Spacer(Modifier.width(8.dp))
 
-                IconButton(
-                    onClick = {
-                        when {
-                            isRecordingVoice -> {
-                                onVoiceRecordStop()
-                            }
-
-                            draft.isNotBlank() && !isSending -> {
-                                onSendMessage(draft.trim(), replyTarget?.id)
-                                draft = ""
-                                onReply(null)
-                            }
-
-                            !isSending -> {
-                                onVoiceRecordStart()
-                            }
-                        }
-                    },
-                    enabled = true
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(InputPill, RoundedCornerShape(26.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    when {
-                        isRecordingVoice -> {
-                            Icon(
-                                Icons.Default.Stop,
-                                contentDescription = "إيقاف التسجيل وإرسال الرسالة الصوتية",
-                                tint = FailedStatusColor
-                            )
-                        }
+                    IconButton(
+                        onClick = onAttachmentClick,
+                        enabled = !isSending,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            contentDescription = "كاميرا",
+                            tint = ChatMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
 
-                        draft.isNotBlank() || isSending -> {
-                            if (isSending) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    color = ChatAccent,
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "إرسال",
-                                    tint = ChatAccent
-                                )
+                    IconButton(
+                        onClick = onAttachmentClick,
+                        enabled = !isSending,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AttachFile,
+                            contentDescription = "إرفاق ملف",
+                            tint = ChatMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = {
+                            draft = it
+
+                            val typingNow = it.isNotBlank()
+                            if (typingNow != lastTypingState) {
+                                lastTypingState = typingNow
+                                onDraftChanged(typingNow)
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 6.dp, vertical = 12.dp),
+                        enabled = !isSending,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = ChatText,
+                            fontSize = 15.sp
+                        ),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                            ChatAccent
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (draft.isEmpty()) {
+                                    Text(
+                                        text = if (replyTarget != null) {
+                                            "اكتب ردًا..."
+                                        } else {
+                                            "مراسلة"
+                                        },
+                                        color = ChatMuted,
+                                        fontSize = 15.sp
+                                    )
+                                }
+
+                                innerTextField()
                             }
                         }
+                    )
 
-                        else -> {
-                            Icon(
-                                Icons.Default.Mic,
-                                contentDescription = "تسجيل رسالة صوتية",
-                                tint = ChatAccent
-                            )
-                        }
+                    IconButton(
+                        onClick = {
+                            draft = draft + "🙂"
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.EmojiEmotions,
+                            contentDescription = "إيموجي",
+                            tint = ChatMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
             }
@@ -1154,6 +1237,26 @@ private fun MessageBubble(
                                 )
                             }
                         }
+
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (message.time.isNotBlank()) {
+                                Text(
+                                    text = message.time,
+                                    color = ChatMuted,
+                                    fontSize = 10.sp
+                                )
+                            }
+
+                            if (message.isMine) {
+                                MessageStatusIndicator(message.status)
+                            }
+                        }
                     }
                 }
 
@@ -1166,24 +1269,6 @@ private fun MessageBubble(
                     )
                 }
 
-                // تفاصيل الرسالة (الوقت وحالة التسليم) خارج الفقاعة
-                Row(
-                    modifier = Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    if (message.time.isNotBlank()) {
-                        Text(
-                            text = message.time,
-                            color = ChatMuted,
-                            fontSize = 10.sp
-                        )
-                    }
-
-                    if (message.isMine) {
-                        MessageStatusIndicator(message.status)
-                    }
-                }
             }
         }
     }
@@ -1208,7 +1293,7 @@ private fun QuotedMessage(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                Color.Black.copy(alpha = 0.22f),
+                QuoteBackground,
                 RoundedCornerShape(8.dp)
             )
             .padding(horizontal = 8.dp, vertical = 6.dp)
@@ -1217,7 +1302,7 @@ private fun QuotedMessage(
             modifier = Modifier
                 .width(3.dp)
                 .height(30.dp)
-                .background(ChatAccent, RoundedCornerShape(2.dp))
+                .background(QuoteGreen, RoundedCornerShape(2.dp))
         )
 
         Spacer(Modifier.width(8.dp))
@@ -1225,7 +1310,7 @@ private fun QuotedMessage(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = senderLabel,
-                color = ChatAccent,
+                color = QuoteGreen,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -1540,22 +1625,42 @@ private fun ImageLoadError() {
 
 @Composable
 private fun MessageStatusIndicator(status: MessageStatus) {
-    val (symbol, color, description) = when (status) {
-        MessageStatus.SENDING -> Triple("◷", ChatMuted, "جارٍ الإرسال")
-        MessageStatus.SENT -> Triple("✓", ChatMuted, "تم الإرسال")
-        MessageStatus.DELIVERED -> Triple("✓✓", ChatMuted, "تم التسليم")
-        MessageStatus.READ -> Triple("✓✓", ReadStatusColor, "تمت القراءة")
-        MessageStatus.FAILED -> Triple("!", FailedStatusColor, "فشل الإرسال")
-    }
+    when (status) {
+        MessageStatus.SENDING -> Icon(
+            Icons.Default.Schedule,
+            contentDescription = "جارٍ الإرسال",
+            tint = ChatMuted,
+            modifier = Modifier.size(13.dp)
+        )
 
-    Text(
-        text = symbol,
-        color = color,
-        fontSize = if (status == MessageStatus.DELIVERED ||
-            status == MessageStatus.READ
-        ) 11.sp else 12.sp,
-        fontWeight = FontWeight.Bold
-    )
+        MessageStatus.SENT -> Icon(
+            Icons.Default.Check,
+            contentDescription = "تم الإرسال",
+            tint = ChatMuted,
+            modifier = Modifier.size(14.dp)
+        )
+
+        MessageStatus.DELIVERED -> Icon(
+            Icons.Default.DoneAll,
+            contentDescription = "تم التسليم",
+            tint = ChatMuted,
+            modifier = Modifier.size(16.dp)
+        )
+
+        MessageStatus.READ -> Icon(
+            Icons.Default.DoneAll,
+            contentDescription = "تمت القراءة",
+            tint = ReadStatusColor,
+            modifier = Modifier.size(16.dp)
+        )
+
+        MessageStatus.FAILED -> Icon(
+            Icons.Default.Schedule,
+            contentDescription = "فشل الإرسال",
+            tint = FailedStatusColor,
+            modifier = Modifier.size(13.dp)
+        )
+    }
 }
 
 @Composable

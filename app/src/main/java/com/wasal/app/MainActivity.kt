@@ -96,12 +96,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-private val WasalNavy = Color(0xFF101B3A)
-private val WasalBackground = Color(0xFF0B1020)
-private val WasalCard = Color(0xFF172342)
-private val WasalAccent = Color(0xFF6C8CFF)
-private val WasalText = Color(0xFFF4F6FF)
-private val WasalMuted = Color(0xFF9AA7C7)
+private val WasalNavy = Color(0xFF001636)
+private val WasalBackground = Color(0xFF000E26)
+private val WasalCard = Color(0xFF001636)
+private val WasalAccent = Color(0xFF2BA0FF)
+private val WasalText = Color(0xFFEAF3FF)
+private val WasalMuted = Color(0xFF8FA9C9)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -185,6 +185,14 @@ private fun WasalHomeScreen(
 
     var bio by remember {
         mutableStateOf("")
+    }
+
+    var avatarUrl by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var isAvatarUploading by remember {
+        mutableStateOf(false)
     }
 
     var errorMessage by remember {
@@ -277,6 +285,48 @@ private fun WasalHomeScreen(
 
     val scope = rememberCoroutineScope()
 
+    val mediaRepository = remember(context, authDataStore) {
+        MediaRepository(context, authDataStore)
+    }
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null || isAvatarUploading) {
+            return@rememberLauncherForActivityResult
+        }
+
+        scope.launch {
+            isAvatarUploading = true
+            errorMessage = null
+
+            try {
+                val token = authDataStore.accessToken
+                    .first()
+                    .orEmpty()
+
+                if (token.isBlank()) {
+                    throw IllegalStateException("يلزم تسجيل الدخول لتغيير الصورة.")
+                }
+
+                val uploaded = withContext(Dispatchers.IO) {
+                    mediaRepository.upload(uri)
+                }.getOrElse { throw it }
+
+                val profile = withContext(Dispatchers.IO) {
+                    profileRepository.updateAvatar(uploaded.url, token)
+                        .getOrElse { throw it }
+                }
+
+                avatarUrl = profile.avatarUrl
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "تعذر تحديث الصورة الشخصية."
+            } finally {
+                isAvatarUploading = false
+            }
+        }
+    }
+
     suspend fun refreshConversations(
         token: String
     ): List<Conversation> {
@@ -347,6 +397,7 @@ private fun WasalHomeScreen(
                 profileResult.onSuccess { profile ->
                     displayName = profile.displayName
                     bio = profile.bio
+                    avatarUrl = profile.avatarUrl
 
                     if (profile.wasalCode.isNotBlank()) {
                         wasalCode = profile.wasalCode
@@ -374,6 +425,8 @@ private fun WasalHomeScreen(
             context = context,
             authDataStore = authDataStore,
             conversation = currentConversation,
+            otherAvatarUrl = currentConversation.avatarUrl,
+            otherBio = currentConversation.bio,
             onBack = {
                 selectedConversation = null
             },
@@ -668,6 +721,9 @@ private fun WasalHomeScreen(
                 else -> {
                     SettingsScreen(
                         displayName = displayName,
+                        avatarUrl = avatarUrl,
+                        isAvatarUploading = isAvatarUploading,
+                        onChangeAvatar = { avatarPicker.launch("image/*") },
                         wasalCode = wasalCode,
                         bio = bio,
                         statusMessage = if (isLoading) {
@@ -827,6 +883,8 @@ private fun ConversationFlow(
     context: Context,
     authDataStore: AuthDataStore,
     conversation: Conversation,
+    otherAvatarUrl: String? = null,
+    otherBio: String = "",
     onBack: () -> Unit,
     onArchive: () -> Unit = {}
 ) {
@@ -1300,6 +1358,8 @@ private fun ConversationFlow(
 
     ConversationScreen(
         title = conversation.title,
+        otherAvatarUrl = otherAvatarUrl,
+        otherBio = otherBio,
         messages = messages,
         currentUserCode = currentUserId,
         replyTarget = replyTarget,

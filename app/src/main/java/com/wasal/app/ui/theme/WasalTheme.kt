@@ -8,21 +8,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 // ألوان الهوية: كحلي داكن + أزرق مميز، بوضعين داكن وفاتح.
-private val WasalNavy = Color(0xFF101B3A)
-private val WasalCardDark = Color(0xFF172342)
-private val WasalAccent = Color(0xFF6C8CFF)
-private val WasalTextLight = Color(0xFFF4F6FF)
-private val WasalMuted = Color(0xFF9AA7C7)
+private val WasalNavy = Color(0xFF001636)
+private val WasalCardDark = Color(0xFF001636)
+private val WasalAccent = Color(0xFF2BA0FF)
+private val WasalTextLight = Color(0xFFEAF3FF)
+private val WasalMuted = Color(0xFF8FA9C9)
 
 private val LightBackground = Color(0xFFF4F6FB)
 private val LightCard = Color(0xFFFFFFFF)
-private val LightText = Color(0xFF101B3A)
+private val LightText = Color(0xFF001636)
 private val LightMuted = Color(0xFF5B6B8C)
 
 private val DarkScheme = darkColorScheme(
     primary = WasalAccent,
     onPrimary = Color.White,
-    background = Color(0xFF0B1020),
+    background = Color(0xFF000E26),
     onBackground = WasalTextLight,
     surface = WasalNavy,
     onSurface = WasalTextLight,
@@ -72,7 +72,7 @@ object WasalPalette {
     val Navy = WasalNavy
     val Accent = WasalAccent
     val Muted = WasalMuted
-    val DarkBackground = Color(0xFF0B1020)
+    val DarkBackground = Color(0xFF000E26)
     val DarkCard = WasalCardDark
     val DarkText = WasalTextLight
     val LightBg = LightBackground

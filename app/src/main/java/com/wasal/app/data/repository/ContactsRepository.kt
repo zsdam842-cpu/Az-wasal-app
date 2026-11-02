@@ -100,7 +100,11 @@ class ContactsRepository {
                     Contact(
                         id = id,
                         name = name,
-                        wasalCode = returnedCode
+                        wasalCode = returnedCode,
+                        avatarUrl = user.optString("avatarUrl").takeIf {
+                            it.isNotBlank() && it != "null"
+                        },
+                        bio = user.optString("bio").orEmpty()
                     )
                 )
             }

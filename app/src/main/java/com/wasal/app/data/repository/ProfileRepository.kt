@@ -10,7 +10,8 @@ data class ProfileUser(
     val id: String,
     val displayName: String,
     val wasalCode: String,
-    val bio: String
+    val bio: String,
+    val avatarUrl: String? = null
 )
 
 class ProfileRepository(
@@ -60,6 +61,22 @@ class ProfileRepository(
         return updateProfile(
             path = "/display-name",
             payload = JSONObject().put("displayName", name).toString()
+        )
+    }
+
+    suspend fun updateAvatar(
+        avatarUrl: String?,
+        accessToken: String
+    ): Result<ProfileUser> {
+        if (accessToken.isBlank()) {
+            return Result.failure(IOException("جلسة وصال غير صالحة."))
+        }
+
+        return updateProfile(
+            path = "/avatar",
+            payload = JSONObject()
+                .put("avatarUrl", avatarUrl.orEmpty())
+                .toString()
         )
     }
 
@@ -118,6 +135,9 @@ class ProfileRepository(
             val code = user.optString("wasalCode")
                 .ifBlank { user.optString("code") }
             val bio = user.optString("bio")
+            val avatarUrl = user.optString("avatarUrl").takeIf {
+                it.isNotBlank() && it != "null"
+            }
 
             if (id.isBlank() ||
                 !code.matches(Regex("^[A-Za-z0-9]{15}$"))
@@ -132,7 +152,8 @@ class ProfileRepository(
                     id = id,
                     displayName = name.ifBlank { "مستخدم وصال" },
                     wasalCode = code,
-                    bio = bio
+                    bio = bio,
+                    avatarUrl = avatarUrl
                 )
             )
         } catch (e: Exception) {

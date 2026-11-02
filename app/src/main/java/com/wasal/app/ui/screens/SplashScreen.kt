@@ -24,11 +24,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalLayoutDirection
 
-private val NavyBackground = Color(0xFF0B1020)
-private val NavyCircle = Color(0xFF172342)
-private val AccentBlue = Color(0xFF6C8CFF)
-private val MainText = Color(0xFFF4F6FF)
-private val SecondaryText = Color(0xFF9AA7C7)
+private val NavyBackground = Color(0xFF000E26)
+private val NavyCircle = Color(0xFF001636)
+private val AccentBlue = Color(0xFF2BA0FF)
+private val MainText = Color(0xFFEAF3FF)
+private val SecondaryText = Color(0xFF8FA9C9)
 
 @Composable
 fun SplashScreen(

@@ -43,12 +43,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.data.model.Contact
+import com.wasal.app.ui.components.WasalAvatar
 
-private val ContactsBackground = Color(0xFF0B1020)
-private val ContactsCard = Color(0xFF172342)
-private val ContactsAccent = Color(0xFF6C8CFF)
-private val ContactsText = Color(0xFFF4F6FF)
-private val ContactsMuted = Color(0xFF9AA7C7)
+private val ContactsBackground = Color(0xFF000E26)
+private val ContactsCard = Color(0xFF001636)
+private val ContactsAccent = Color(0xFF2BA0FF)
+private val ContactsText = Color(0xFFEAF3FF)
+private val ContactsMuted = Color(0xFF8FA9C9)
 
 @Composable
 fun ContactsScreen(
@@ -282,32 +283,34 @@ fun ContactsScreen(
                                 .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(
-                                        ContactsAccent.copy(alpha = 0.18f),
-                                        CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    contact.name.trim().take(1).ifBlank { "و" },
-                                    color = ContactsAccent,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            WasalAvatar(
+                                name = contact.name,
+                                avatarUrl = contact.avatarUrl,
+                                size = 48.dp,
+                                background = ContactsAccent.copy(alpha = 0.18f),
+                                accent = ContactsAccent
+                            )
 
                             Spacer(Modifier.size(12.dp))
 
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     contact.name,
                                     color = ContactsText,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
+
+                                if (contact.bio.isNotBlank()) {
+                                    Spacer(Modifier.size(4.dp))
+                                    Text(
+                                        text = contact.bio,
+                                        color = ContactsMuted,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
 
                                 if (contact.wasalCode.isNotBlank()) {
                                     Spacer(Modifier.size(4.dp))

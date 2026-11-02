@@ -3,6 +3,7 @@ package com.wasal.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,12 +11,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,16 +45,20 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wasal.app.ui.components.WasalAvatar
 
-private val SetBackground = Color(0xFF0B1020)
-private val SetCard = Color(0xFF172342)
-private val SetAccent = Color(0xFF6C8CFF)
-private val SetText = Color(0xFFF4F6FF)
-private val SetMuted = Color(0xFF9AA7C7)
+private val SetBackground = Color(0xFF000E26)
+private val SetCard = Color(0xFF001636)
+private val SetAccent = Color(0xFF2BA0FF)
+private val SetText = Color(0xFFEAF3FF)
+private val SetMuted = Color(0xFF8FA9C9)
 
 @Composable
 fun SettingsScreen(
     displayName: String = "مستخدم وصال",
+    avatarUrl: String? = null,
+    isAvatarUploading: Boolean = false,
+    onChangeAvatar: () -> Unit = {},
     wasalCode: String = "",
     bio: String = "",
     statusMessage: String? = null,
@@ -114,7 +122,82 @@ fun SettingsScreen(
                     fontSize = 13.sp
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        WasalAvatar(
+                            name = displayName,
+                            avatarUrl = avatarUrl,
+                            size = 76.dp,
+                            background = SetAccent.copy(alpha = 0.18f),
+                            accent = SetAccent
+                        )
+
+                        if (isAvatarUploading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(76.dp),
+                                color = SetAccent,
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "الصورة الشخصية",
+                            color = SetText,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = if (avatarUrl.isNullOrBlank()) {
+                                "أضف صورة تظهر في محادثاتك وجهات اتصالك."
+                            } else {
+                                "يمكنك تغييرها في أي وقت."
+                            },
+                            color = SetMuted,
+                            fontSize = 12.sp
+                        )
+
+                        Spacer(Modifier.height(6.dp))
+
+                        OutlinedButton(
+                            onClick = onChangeAvatar,
+                            enabled = !isAvatarUploading,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PhotoCamera,
+                                contentDescription = null,
+                                tint = SetAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+
+                            Spacer(Modifier.width(8.dp))
+
+                            Text(
+                                text = if (isAvatarUploading) {
+                                    "جارٍ الرفع..."
+                                } else {
+                                    "تغيير الصورة"
+                                },
+                                color = SetAccent,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
 
                 OutlinedTextField(
                     value = editedName,

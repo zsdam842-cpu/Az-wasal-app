@@ -55,11 +55,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-private val StatusBackground = Color(0xFF0B1020)
-private val StatusCard = Color(0xFF172342)
-private val StatusAccent = Color(0xFF6C8CFF)
-private val StatusText = Color(0xFFF4F6FF)
-private val StatusMuted = Color(0xFF9AA7C7)
+private val StatusBackground = Color(0xFF000E26)
+private val StatusCard = Color(0xFF001636)
+private val StatusAccent = Color(0xFF2BA0FF)
+private val StatusText = Color(0xFFEAF3FF)
+private val StatusMuted = Color(0xFF8FA9C9)
 
 data class StatusItem(
     val id: Long,
