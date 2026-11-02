@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.data.network.CoreApiClient
 import com.wasal.app.data.repository.AuthenticatedApiClient
+import com.wasal.app.data.repository.MediaRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -83,6 +85,11 @@ fun StatusesScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var draftText by remember { mutableStateOf("") }
     var isPublishing by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val mediaRepository = remember(context, authDataStore) {
+        MediaRepository(context, authDataStore)
+    }
 
     fun loadStatuses() {
         scope.launch {
@@ -137,6 +144,53 @@ fun StatusesScreen(
             }
         }
     }
+
+    fun publishMediaStatus(uri: android.net.Uri, isVideo: Boolean) {
+        if (isPublishing) return
+        scope.launch {
+            isPublishing = true
+            try {
+                val uploaded = withContext(Dispatchers.IO) {
+                    mediaRepository.upload(uri).getOrElse { throw it }
+                }
+
+                val payload = JSONObject()
+                    .put("type", if (isVideo) "video" else "image")
+                    .put("mediaUrl", uploaded.url)
+                    .put("text", draftText.trim())
+                    .toString()
+
+                val result = withContext(Dispatchers.IO) {
+                    apiClient.execute { token ->
+                        CoreApiClient.post("/api/statuses", payload, token)
+                    }
+                }
+
+                val response = result.getOrElse { throw it }
+                if (!response.isSuccessful) {
+                    throw Exception("تعذر نشر الحالة. رمز الاستجابة: ${response.code}")
+                }
+
+                draftText = ""
+                showAddDialog = false
+                loadStatuses()
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "تعذر نشر الحالة."
+            } finally {
+                isPublishing = false
+            }
+        }
+    }
+
+    val statusMediaPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val isVideo = context.contentResolver.getType(uri)?.startsWith("video/") == true
+            publishMediaStatus(uri, isVideo)
+        }
+    }
+
 
     fun publishStatus() {
         val text = draftText.trim()
@@ -361,15 +415,28 @@ fun StatusesScreen(
                     )
                 },
                 text = {
-                    OutlinedTextField(
-                        value = draftText,
-                        onValueChange = { if (it.length <= 200) draftText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isPublishing,
-                        placeholder = {
-                            Text("اكتب حالتك...", color = StatusMuted)
+                    Column {
+                        OutlinedTextField(
+                            value = draftText,
+                            onValueChange = { if (it.length <= 200) draftText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isPublishing,
+                            placeholder = {
+                                Text("اكتب حالتك...", color = StatusMuted)
+                            }
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = { statusMediaPicker.launch("image/*") },
+                                enabled = !isPublishing
+                            ) { Text("صورة", color = StatusAccent) }
+                            TextButton(
+                                onClick = { statusMediaPicker.launch("video/*") },
+                                enabled = !isPublishing
+                            ) { Text("فيديو", color = StatusAccent) }
                         }
-                    )
+                    }
                 },
                 confirmButton = {
                     TextButton(

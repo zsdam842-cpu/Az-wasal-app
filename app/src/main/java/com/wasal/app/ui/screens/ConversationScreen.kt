@@ -33,9 +33,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -79,6 +84,9 @@ fun ConversationScreen(
     onSendMessage: (String) -> Unit = {},
     onAttachmentClick: () -> Unit = {},
     onMoreClick: () -> Unit = {},
+    onEditMessage: (Message, String) -> Unit = { _, _ -> },
+    onClearChat: () -> Unit = {},
+    onArchive: () -> Unit = {},
     isLoading: Boolean = false,
     isSending: Boolean = false,
     isOtherTyping: Boolean = false,
@@ -91,6 +99,11 @@ fun ConversationScreen(
     mediaAccessToken: String = ""
 ) {
     var draft by remember { mutableStateOf("") }
+    var showConversationMenu by remember { mutableStateOf(false) }
+    var showMediaList by remember { mutableStateOf(false) }
+    var showClearChatConfirm by remember { mutableStateOf(false) }
+    var editingMessage by remember { mutableStateOf<Message?>(null) }
+    var editDraft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     BackHandler {
@@ -163,12 +176,53 @@ fun ConversationScreen(
                     )
                 }
 
-                IconButton(onClick = onMoreClick) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "خيارات",
-                        tint = ChatText
-                    )
+                Box {
+                    IconButton(onClick = { showConversationMenu = true }) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "خيارات",
+                            tint = ChatText
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showConversationMenu,
+                        onDismissRequest = { showConversationMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("وسائط وروابط ومستندات") },
+                            onClick = {
+                                showConversationMenu = false
+                                showMediaList = true
+                            }
+                        )
+                        val lastMineText = messages.lastOrNull {
+                            it.isMine && it.type.equals("text", true) && !it.deletedForEveryone
+                        }
+                        DropdownMenuItem(
+                            text = { Text("تعديل آخر رسالة أرسلتها") },
+                            enabled = lastMineText != null,
+                            onClick = {
+                                showConversationMenu = false
+                                editingMessage = lastMineText
+                                editDraft = lastMineText?.content.orEmpty()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("أرشفة المحادثة") },
+                            onClick = {
+                                showConversationMenu = false
+                                onArchive()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("حذف محتوى الدردشة") },
+                            onClick = {
+                                showConversationMenu = false
+                                showClearChatConfirm = true
+                            }
+                        )
+                    }
                 }
             }
 
@@ -395,6 +449,92 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+
+    if (showMediaList) {
+        val media = messages.filter {
+            it.type.lowercase() in setOf("image", "video", "file", "link", "audio", "voice")
+        }
+        AlertDialog(
+            onDismissRequest = { showMediaList = false },
+            title = { Text("وسائط وروابط ومستندات") },
+            text = {
+                if (media.isEmpty()) {
+                    Text("لا توجد وسائط أو روابط في هذه المحادثة.", color = ChatMuted)
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                        items(media) { item ->
+                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                Text(
+                                    text = when (item.type.lowercase()) {
+                                        "image" -> "صورة"
+                                        "video" -> "فيديو"
+                                        "audio", "voice" -> "رسالة صوتية"
+                                        "file" -> "مستند"
+                                        else -> "رابط"
+                                    },
+                                    color = ChatAccent,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = item.content.take(90),
+                                    color = ChatMuted,
+                                    fontSize = 12.sp
+                                )
+                                Text(text = item.time, color = ChatMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMediaList = false }) { Text("إغلاق") }
+            }
+        )
+    }
+
+    if (showClearChatConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearChatConfirm = false },
+            title = { Text("حذف محتوى الدردشة") },
+            text = { Text("ستُحذف كل رسائل هذه المحادثة لديك فقط، وتبقى عند الطرف الآخر.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearChatConfirm = false
+                    onClearChat()
+                }) { Text("حذف", color = FailedStatusColor) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearChatConfirm = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    editingMessage?.let { target ->
+        AlertDialog(
+            onDismissRequest = { editingMessage = null },
+            title = { Text("تعديل الرسالة") },
+            text = {
+                OutlinedTextField(
+                    value = editDraft,
+                    onValueChange = { editDraft = it },
+                    label = { Text("نص الرسالة") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val updated = editDraft.trim()
+                    if (updated.isNotEmpty()) {
+                        onEditMessage(target, updated)
+                    }
+                    editingMessage = null
+                }) { Text("حفظ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingMessage = null }) { Text("إلغاء") }
+            }
+        )
     }
 }
 

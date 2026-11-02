@@ -539,4 +539,54 @@ class MessageRepository(
             Result.failure(error)
         }
     }
+
+    /** تعديل نص رسالة أرسلتها أنا. */
+    suspend fun editMessage(messageId: String, content: String): Result<Unit> {
+        if (messageId.isBlank() || content.isBlank()) {
+            return Result.failure(IllegalArgumentException("نص الرسالة مطلوب."))
+        }
+
+        val payload = JSONObject().put("content", content).toString()
+
+        val result = apiClient.execute { token ->
+            CoreApiClient.patch("/api/messages/$messageId", payload, token)
+        }
+
+        val response = result.getOrElse { return Result.failure(it) }
+
+        return if (response.isSuccessful) {
+            Result.success(Unit)
+        } else {
+            val error = runCatching {
+                JSONObject(response.body).optString("error")
+            }.getOrDefault("")
+
+            Result.failure(
+                IOException(
+                    error.ifBlank { "تعذر تعديل الرسالة. رمز الاستجابة: ${response.code}" }
+                )
+            )
+        }
+    }
+
+    /** حذف محتوى المحادثة لدى هذا المستخدم فقط. */
+    suspend fun clearConversation(conversationId: String): Result<Unit> {
+        if (conversationId.isBlank()) {
+            return Result.failure(IllegalArgumentException("معرّف المحادثة غير موجود."))
+        }
+
+        val result = apiClient.execute { token ->
+            CoreApiClient.delete("/api/conversations/$conversationId/messages", token)
+        }
+
+        val response = result.getOrElse { return Result.failure(it) }
+
+        return if (response.isSuccessful) {
+            Result.success(Unit)
+        } else {
+            Result.failure(
+                IOException("تعذر حذف المحادثة. رمز الاستجابة: ${response.code}")
+            )
+        }
+    }
 }

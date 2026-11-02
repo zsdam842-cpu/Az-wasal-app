@@ -161,6 +161,15 @@ private fun WasalHomeScreen(
         mutableStateOf<List<Conversation>>(emptyList())
     }
 
+    val archivePreferences = remember(context) {
+        context.getSharedPreferences("wasal_archived", Context.MODE_PRIVATE)
+    }
+    var archivedConversationIds by remember {
+        mutableStateOf(
+            archivePreferences.getStringSet("ids", emptySet())?.toSet() ?: emptySet()
+        )
+    }
+
     var contacts by remember {
         mutableStateOf<List<Contact>>(emptyList())
     }
@@ -278,7 +287,8 @@ private fun WasalHomeScreen(
             throw it
         }
 
-        conversations = loaded
+        listOf<Conversation>()
+        conversations = loaded.filterNot { it.id in archivedConversationIds }
         return loaded
     }
 
@@ -293,7 +303,7 @@ private fun WasalHomeScreen(
                 chatRepository.cachedConversations(cachedUserId)
             }
             if (cached.isNotEmpty()) {
-                conversations = cached
+                conversations = cached.filterNot { it.id in archivedConversationIds }
                 isLoading = false
             }
         }
@@ -364,6 +374,14 @@ private fun WasalHomeScreen(
             authDataStore = authDataStore,
             conversation = currentConversation,
             onBack = {
+                selectedConversation = null
+            },
+            onArchive = {
+                archivedConversationIds = archivedConversationIds + currentConversation.id
+                archivePreferences.edit()
+                    .putStringSet("ids", archivedConversationIds)
+                    .apply()
+                conversations = conversations.filterNot { it.id == currentConversation.id }
                 selectedConversation = null
             }
         )
@@ -808,7 +826,8 @@ private fun ConversationFlow(
     context: Context,
     authDataStore: AuthDataStore,
     conversation: Conversation,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onArchive: () -> Unit = {}
 ) {
     val messageRepository = remember(authDataStore) {
         MessageRepository(authDataStore)
@@ -1175,6 +1194,37 @@ private fun ConversationFlow(
         onDraftChanged = { isTyping ->
             SocketService.emitTyping(conversation.id, isTyping)
         },
+        onEditMessage = { message, newText ->
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        messageRepository.editMessage(message.id, newText)
+                            .getOrElse { throw it }
+                    }
+                    messages = messages.map {
+                        if (it.id == message.id) it.copy(content = newText) else it
+                    }
+                    statusMessage = "تم تعديل الرسالة."
+                } catch (e: Exception) {
+                    statusMessage = e.message ?: "تعذر تعديل الرسالة."
+                }
+            }
+        },
+        onClearChat = {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        messageRepository.clearConversation(conversation.id)
+                            .getOrElse { throw it }
+                    }
+                    messages = emptyList()
+                    statusMessage = "تم حذف محتوى الدردشة لديك."
+                } catch (e: Exception) {
+                    statusMessage = e.message ?: "تعذر حذف المحادثة."
+                }
+            }
+        },
+        onArchive = onArchive,
         onDeleteMessage = { message, forEveryone ->
             scope.launch {
                 try {

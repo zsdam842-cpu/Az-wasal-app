@@ -51,6 +51,21 @@ object CoreApiClient {
     }
 
     /**
+     * إنشاء طلب PATCH بصيغة JSON.
+     */
+    fun patch(
+        path: String,
+        jsonBody: String,
+        accessToken: String? = null
+    ): Request {
+        val body = jsonBody.toRequestBody(jsonMediaType)
+
+        return requestBuilder(path, accessToken)
+            .patch(body)
+            .build()
+    }
+
+    /**
      * إنشاء طلب PUT بصيغة JSON.
      */
     fun put(
