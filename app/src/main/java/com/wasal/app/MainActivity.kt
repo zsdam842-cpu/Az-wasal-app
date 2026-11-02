@@ -867,6 +867,8 @@ private fun ConversationFlow(
                     return@launch
                 }
 
+                isOtherTyping = false
+
                 val alreadyListed = messages.any { it.id == incoming.id }
 
                 if (!alreadyListed) {
@@ -925,7 +927,36 @@ private fun ConversationFlow(
             }
         }
 
+        val reactionListener: (JSONObject) -> Unit = { payload ->
+            val messageId = payload.optString("messageId").trim()
+            val userCode = payload.optString("userCode").trim()
+            val emoji = payload.optString("emoji").trim()
+            val action = payload.optString("action", "set")
+
+            if (messageId.isNotBlank() && emoji.isNotBlank()) {
+                messages = messages.map { m ->
+                    if (m.id != messageId) {
+                        m
+                    } else {
+                        val others = m.reactions.filterNot { it.userCode == userCode }
+
+                        m.copy(
+                            reactions = if (action == "removed") {
+                                others
+                            } else {
+                                others + com.wasal.app.data.model.MessageReaction(
+                                    userCode = userCode,
+                                    emoji = emoji
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
         SocketService.on("message", messageListener)
+        SocketService.on("message_reaction", reactionListener)
         SocketService.on("typing", typingListener)
         SocketService.on("message_delivered", deliveredListener)
         SocketService.on("message_read", readListener)
@@ -935,6 +966,14 @@ private fun ConversationFlow(
 
     var mediaAccessToken by remember(conversation.id) {
         mutableStateOf("")
+    }
+
+    var currentUserId by remember(conversation.id) {
+        mutableStateOf("")
+    }
+
+    var replyTarget by remember(conversation.id) {
+        mutableStateOf<Message?>(null)
     }
 
     var isLoading by remember {
@@ -1078,6 +1117,10 @@ private fun ConversationFlow(
         mutableStateMapOf<String, Uri>()
     }
 
+    val pendingMediaReplies = remember(conversation.id) {
+        mutableStateMapOf<String, String>()
+    }
+
     fun localTimestamp(): String {
         val format = java.text.SimpleDateFormat(
             "yyyy-MM-dd HH:mm:ss",
@@ -1096,6 +1139,7 @@ private fun ConversationFlow(
 
     fun uploadPendingMedia(localId: String) {
         val uri = pendingMediaUris[localId] ?: return
+        val replyToId = pendingMediaReplies[localId]
 
         scope.launch {
             // أثناء الرفع تُعرض الفقاعة المحلية بحالة "جارٍ الإرسال"
@@ -1146,6 +1190,7 @@ private fun ConversationFlow(
                 }
 
                 pendingMediaUris.remove(localId)
+                pendingMediaReplies.remove(localId)
 
                 // استبدال المعاينة المحلية بالرسالة الحقيقية (بلا تكرار)
                 messages = messages.filterNot {
@@ -1168,6 +1213,8 @@ private fun ConversationFlow(
     fun sendSelectedMedia(uri: Uri?) {
         if (uri == null) return
 
+        val replyToId = replyTarget?.id
+
         val mimeType = runCatching {
             context.contentResolver.getType(uri)
         }.getOrNull().orEmpty()
@@ -1177,6 +1224,10 @@ private fun ConversationFlow(
         val localId = "local-${java.util.UUID.randomUUID()}"
 
         pendingMediaUris[localId] = uri
+
+        if (!replyToId.isNullOrBlank()) {
+            pendingMediaReplies[localId] = replyToId
+        }
 
         messages = messages + Message(
             id = localId,
@@ -1189,6 +1240,7 @@ private fun ConversationFlow(
         )
 
         statusMessage = null
+        replyTarget = null
         uploadPendingMedia(localId)
     }
 
@@ -1225,6 +1277,8 @@ private fun ConversationFlow(
                 )
             }
 
+            currentUserId = userId
+
             val result = withContext(Dispatchers.IO) {
                 messageRepository.getMessages(
                     conversationId = conversation.id,
@@ -1247,6 +1301,29 @@ private fun ConversationFlow(
     ConversationScreen(
         title = conversation.title,
         messages = messages,
+        currentUserCode = currentUserId,
+        replyTarget = replyTarget,
+        onReply = { replyTarget = it },
+        onReact = { message, emoji ->
+            scope.launch {
+                try {
+                    val updated = withContext(Dispatchers.IO) {
+                        messageRepository.setReaction(message.id, emoji)
+                            .getOrElse { throw it }
+                    }
+
+                    messages = messages.map {
+                        if (it.id == message.id) {
+                            it.copy(reactions = updated)
+                        } else {
+                            it
+                        }
+                    }
+                } catch (e: Exception) {
+                    statusMessage = e.message ?: "تعذر إضافة التفاعل."
+                }
+            }
+        },
         onBack = onBack,
         isLoading = isLoading,
         isSending = isSending,
@@ -1331,7 +1408,7 @@ private fun ConversationFlow(
             stopVoiceRecordingAndSend()
         },
         isRecordingVoice = isRecordingVoice,
-        onSendMessage = { text ->
+        onSendMessage = { text, replyToId ->
             scope.launch {
                 isSending = true
                 statusMessage = null
@@ -1359,7 +1436,8 @@ private fun ConversationFlow(
                             conversationId = conversation.id,
                             content = text,
                             accessToken = token,
-                            currentUserId = userId
+                            currentUserId = userId,
+                            replyToId = replyToId
                         )
                     }
 
@@ -1367,6 +1445,7 @@ private fun ConversationFlow(
                         throw it
                     }
 
+                    replyTarget = null
                     messages = messages + message
                 } catch (e: Exception) {
                     statusMessage = e.message

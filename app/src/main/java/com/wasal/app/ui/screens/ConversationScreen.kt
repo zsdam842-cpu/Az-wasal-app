@@ -2,7 +2,10 @@ package com.wasal.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,11 +26,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
@@ -36,6 +51,8 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -50,6 +67,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,10 +75,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +95,8 @@ import coil.compose.SubcomposeAsyncImage
 import com.wasal.app.data.model.Message
 import com.wasal.app.data.model.MessageStatus
 import com.wasal.app.data.model.isLocalPending
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val ChatBackground = Color(0xFF0B1020)
 private val ChatHeader = Color(0xFF101B3A)
@@ -86,7 +113,7 @@ fun ConversationScreen(
     title: String,
     messages: List<Message> = emptyList(),
     onBack: () -> Unit = {},
-    onSendMessage: (String) -> Unit = {},
+    onSendMessage: (String, String?) -> Unit = { _, _ -> },
     onAttachmentClick: () -> Unit = {},
     onMoreClick: () -> Unit = {},
     onEditMessage: (Message, String) -> Unit = { _, _ -> },
@@ -98,6 +125,10 @@ fun ConversationScreen(
     onDraftChanged: (Boolean) -> Unit = {},
     onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> },
     onRetryMedia: (Message) -> Unit = {},
+    onReact: (Message, String) -> Unit = { _, _ -> },
+    replyTarget: Message? = null,
+    onReply: (Message?) -> Unit = {},
+    currentUserCode: String = "",
     onVoiceRecordStart: () -> Unit = {},
     onVoiceRecordStop: () -> Unit = {},
     isRecordingVoice: Boolean = false,
@@ -110,13 +141,16 @@ fun ConversationScreen(
     var showClearChatConfirm by remember { mutableStateOf(false) }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
     var editDraft by remember { mutableStateOf("") }
+    var actionTarget by remember { mutableStateOf<Message?>(null) }
+    var lastTypingState by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
     val listState = rememberLazyListState()
 
     BackHandler {
         onBack()
     }
 
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.size, isOtherTyping) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
         }
@@ -232,6 +266,26 @@ fun ConversationScreen(
                 }
             }
 
+            if (isOtherTyping) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(ChatHeader)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "جارٍ الكتابة",
+                        color = ChatAccent,
+                        fontSize = 12.sp
+                    )
+
+                    Spacer(Modifier.width(6.dp))
+
+                    AnimatedDots(color = ChatAccent)
+                }
+            }
+
             if (statusMessage != null) {
                 Text(
                     text = statusMessage,
@@ -311,10 +365,20 @@ fun ConversationScreen(
                         ) { message ->
                             MessageBubble(
                                 message = message,
+                                otherName = title,
+                                currentUserCode = currentUserCode,
                                 mediaAccessToken = mediaAccessToken,
-                                onDeleteMessage = onDeleteMessage,
+                                selected = actionTarget?.id == message.id,
+                                onLongPress = { actionTarget = it },
+                                onSwipeReply = { onReply(it) },
                                 onRetryMedia = onRetryMedia
                             )
+                        }
+
+                        if (isOtherTyping) {
+                            item(key = "typing-indicator") {
+                                TypingBubble()
+                            }
                         }
                     }
                 }
@@ -345,6 +409,60 @@ fun ConversationScreen(
                 }
             }
 
+            replyTarget?.let { target ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(ChatBubbleOther)
+                        .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(34.dp)
+                            .background(ChatAccent, RoundedCornerShape(2.dp))
+                    )
+
+                    Spacer(Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (target.isMine) {
+                                "رد على رسالتك"
+                            } else {
+                                "رد على $title"
+                            },
+                            color = ChatAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(Modifier.height(2.dp))
+
+                        Text(
+                            text = quoteSnippet(target),
+                            color = ChatMuted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onReply(null) },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "إلغاء الرد",
+                            tint = ChatMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -367,7 +485,12 @@ fun ConversationScreen(
                     value = draft,
                     onValueChange = {
                         draft = it
-                        onDraftChanged(it.isNotBlank())
+
+                        val typingNow = it.isNotBlank()
+                        if (typingNow != lastTypingState) {
+                            lastTypingState = typingNow
+                            onDraftChanged(typingNow)
+                        }
                     },
                     modifier = Modifier
                         .weight(1f)
@@ -388,7 +511,11 @@ fun ConversationScreen(
                         Box {
                             if (draft.isEmpty()) {
                                 Text(
-                                    text = "اكتب رسالتك...",
+                                    text = if (replyTarget != null) {
+                                        "اكتب ردًا..."
+                                    } else {
+                                        "اكتب رسالتك..."
+                                    },
                                     color = ChatMuted,
                                     fontSize = 14.sp
                                 )
@@ -409,8 +536,9 @@ fun ConversationScreen(
                             }
 
                             draft.isNotBlank() && !isSending -> {
-                                onSendMessage(draft.trim())
+                                onSendMessage(draft.trim(), replyTarget?.id)
                                 draft = ""
+                                onReply(null)
                             }
 
                             !isSending -> {
@@ -543,6 +671,109 @@ fun ConversationScreen(
             }
         )
     }
+
+    actionTarget?.let { target ->
+        @OptIn(ExperimentalMaterial3Api::class)
+        ModalBottomSheet(
+            onDismissRequest = { actionTarget = null },
+            containerColor = ChatHeader
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 18.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf("❤️", "👍", "😂", "😮", "😢", "🙏").forEach { emoji ->
+                        val mine = target.reactions.any {
+                            it.userCode == currentUserCode && it.emoji == emoji
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (mine) ChatBubbleMine else ChatBubbleOther
+                                )
+                                .clickable {
+                                    onReact(target, emoji)
+                                    actionTarget = null
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = emoji, fontSize = 20.sp)
+                        }
+                    }
+                }
+
+                if (!target.isLocalPending) {
+                    SheetAction(
+                        label = "نسخ النص",
+                        icon = Icons.Default.ContentCopy,
+                        enabled = target.content.isNotBlank() &&
+                            !target.deletedForEveryone
+                    ) {
+                        clipboard.setText(AnnotatedString(target.content))
+                        actionTarget = null
+                    }
+
+                    SheetAction(
+                        label = "رد",
+                        icon = Icons.AutoMirrored.Filled.Reply
+                    ) {
+                        onReply(target)
+                        actionTarget = null
+                    }
+
+                    if (target.isMine &&
+                        target.type.equals("text", true) &&
+                        !target.deletedForEveryone
+                    ) {
+                        SheetAction(
+                            label = "تعديل الرسالة",
+                            icon = Icons.Default.Edit
+                        ) {
+                            editingMessage = target
+                            editDraft = target.content
+                            actionTarget = null
+                        }
+                    }
+
+                    SheetAction(
+                        label = "حذف لدي",
+                        icon = Icons.Default.Delete
+                    ) {
+                        onDeleteMessage(target, false)
+                        actionTarget = null
+                    }
+
+                    if (target.isMine) {
+                        SheetAction(
+                            label = "حذف لدى الجميع",
+                            icon = Icons.Default.Delete,
+                            tint = FailedStatusColor
+                        ) {
+                            onDeleteMessage(target, true)
+                            actionTarget = null
+                        }
+                    }
+                }
+
+                SheetAction(
+                    label = "إلغاء",
+                    icon = Icons.Default.Close
+                ) {
+                    actionTarget = null
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -637,155 +868,415 @@ private fun VoicePlayer(
 }
 
 @Composable
-private fun MessageBubble(
-    message: Message,
-    mediaAccessToken: String,
-    onDeleteMessage: (Message, Boolean) -> Unit = { _, _ -> },
-    onRetryMedia: (Message) -> Unit = {}
+private fun AnimatedDots(
+    color: Color,
+    dotSize: androidx.compose.ui.unit.Dp = 6.dp
 ) {
+    val transition = rememberInfiniteTransition(label = "typing-dots")
+
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isMine) {
-            Arrangement.Start
-        } else {
-            Arrangement.End
-        }
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .padding(vertical = 2.dp),
-            horizontalAlignment = if (message.isMine) Alignment.Start else Alignment.End
-        ) {
-            // الفقاعة بحجم المحتوى، لا بعرض الشاشة
+        repeat(3) { index ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(
+                        durationMillis = 550,
+                        delayMillis = index * 170,
+                        easing = LinearEasing
+                    ),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "dot-$index"
+            )
+
             Box(
                 modifier = Modifier
-                    .background(
-                        color = if (message.isMine) {
-                            ChatBubbleMine
+                    .size(dotSize)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = alpha))
+            )
+        }
+    }
+}
+
+@Composable
+private fun TypingBubble() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 13.dp, vertical = 12.dp)
+                .background(ChatBubbleOther, RoundedCornerShape(16.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            AnimatedDots(color = ChatAccent, dotSize = 7.dp)
+        }
+    }
+}
+
+@Composable
+private fun SheetAction(
+    label: String,
+    icon: ImageVector,
+    tint: Color = ChatText,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) tint else ChatMuted,
+                modifier = Modifier.size(20.dp)
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            Text(
+                text = label,
+                color = if (enabled) tint else ChatMuted,
+                fontSize = 15.sp
+            )
+        }
+    }
+}
+
+private fun quoteSnippet(message: Message): String = when (message.type.lowercase()) {
+    "image" -> "صورة"
+    "video" -> "فيديو"
+    "audio", "voice" -> "رسالة صوتية"
+    "file" -> "مستند"
+    else -> message.content
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun MessageBubble(
+    message: Message,
+    otherName: String,
+    currentUserCode: String,
+    mediaAccessToken: String,
+    selected: Boolean,
+    onLongPress: (Message) -> Unit,
+    onSwipeReply: (Message) -> Unit,
+    onRetryMedia: (Message) -> Unit = {}
+) {
+    val density = LocalDensity.current
+    val threshold = with(density) { 64.dp.toPx() }
+
+    var dragOffset by remember(message.id) { mutableFloatStateOf(0f) }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // أيقونة الرد تظهر خلف الرسالة أثناء السحب عليها
+        if (dragOffset != 0f) {
+            Icon(
+                Icons.AutoMirrored.Filled.Reply,
+                contentDescription = null,
+                tint = ChatAccent,
+                modifier = Modifier
+                    .align(
+                        if (dragOffset > 0f) {
+                            Alignment.CenterStart
                         } else {
-                            ChatBubbleOther
-                        },
-                        shape = RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart = if (message.isMine) 4.dp else 16.dp,
-                            bottomEnd = if (message.isMine) 16.dp else 4.dp
-                        )
+                            Alignment.CenterEnd
+                        }
                     )
-                    .padding(horizontal = 13.dp, vertical = 9.dp)
+                    .padding(horizontal = 10.dp)
+                    .size(22.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(dragOffset.roundToInt(), 0) }
+                .pointerInput(message.id, message.isLocalPending) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (abs(dragOffset) >= threshold) {
+                                onSwipeReply(message)
+                            }
+                            dragOffset = 0f
+                        },
+                        onDragCancel = { dragOffset = 0f },
+                        onHorizontalDrag = { _, amount ->
+                            if (!message.isLocalPending) {
+                                dragOffset = (dragOffset + amount)
+                                    .coerceIn(-threshold * 2, threshold * 2)
+                            }
+                        }
+                    )
+                },
+            horizontalArrangement = if (message.isMine) {
+                Arrangement.Start
+            } else {
+                Arrangement.End
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .padding(vertical = 2.dp),
+                horizontalAlignment = if (message.isMine) Alignment.Start else Alignment.End
             ) {
-                when (message.type.lowercase()) {
-                    "deleted" -> {
-                        Text(
-                            text = "هذه الرسالة محذوفة",
-                            color = ChatMuted,
-                            fontSize = 15.sp,
-                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                        )
-                    }
+                val bubbleShape = RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (message.isMine) 4.dp else 16.dp,
+                    bottomEnd = if (message.isMine) 16.dp else 4.dp
+                )
 
-                    "image" -> {
-                        MessageImage(
-                            imageUrl = message.localUri ?: message.content,
-                            accessToken = if (message.localUri == null) {
-                                mediaAccessToken
+                Box(
+                    modifier = Modifier
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { onLongPress(message) }
+                        )
+                        .background(
+                            color = if (message.isMine) {
+                                ChatBubbleMine
                             } else {
-                                ""
+                                ChatBubbleOther
                             },
-                            pending = message.localUri != null &&
-                                message.status == MessageStatus.SENDING,
-                            failed = message.localUri != null &&
-                                message.status == MessageStatus.FAILED,
-                            onRetry = { onRetryMedia(message) }
+                            shape = bubbleShape
                         )
-                    }
-
-                    "video" -> {
-                        MessageVideo(
-                            videoUrl = message.localUri ?: message.content,
-                            accessToken = if (message.localUri == null) {
-                                mediaAccessToken
+                        .then(
+                            if (selected) {
+                                Modifier.border(1.5.dp, ChatAccent, bubbleShape)
                             } else {
-                                ""
-                            },
-                            pending = message.localUri != null &&
-                                message.status == MessageStatus.SENDING,
-                            failed = message.localUri != null &&
-                                message.status == MessageStatus.FAILED,
-                            onRetry = { onRetryMedia(message) }
+                                Modifier
+                            }
                         )
-                    }
-
-                    "audio", "voice" -> {
-                        VoicePlayer(
-                            url = message.content,
-                            isMine = message.isMine
-                        )
-                    }
-
-                    "file" -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Description,
-                                contentDescription = null,
-                                tint = ChatAccent
+                        .padding(horizontal = 13.dp, vertical = 9.dp)
+                ) {
+                    Column {
+                        if (!message.isLocalPending && message.replyToId != null) {
+                            QuotedMessage(
+                                message = message,
+                                otherName = otherName,
+                                currentUserCode = currentUserCode
                             )
 
-                            Spacer(Modifier.width(6.dp))
-
-                            Text(
-                                text = "ملف مرفق",
-                                color = ChatText
-                            )
+                            Spacer(Modifier.height(6.dp))
                         }
 
-                        AttachmentLink(message.content)
+                        when (message.type.lowercase()) {
+                            "deleted" -> {
+                                Text(
+                                    text = "هذه الرسالة محذوفة",
+                                    color = ChatMuted,
+                                    fontSize = 15.sp,
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                )
+                            }
+
+                            "image" -> {
+                                MessageImage(
+                                    imageUrl = message.localUri ?: message.content,
+                                    accessToken = if (message.localUri == null) {
+                                        mediaAccessToken
+                                    } else {
+                                        ""
+                                    },
+                                    pending = message.localUri != null &&
+                                        message.status == MessageStatus.SENDING,
+                                    failed = message.localUri != null &&
+                                        message.status == MessageStatus.FAILED,
+                                    onRetry = { onRetryMedia(message) }
+                                )
+                            }
+
+                            "video" -> {
+                                MessageVideo(
+                                    videoUrl = message.localUri ?: message.content,
+                                    accessToken = if (message.localUri == null) {
+                                        mediaAccessToken
+                                    } else {
+                                        ""
+                                    },
+                                    pending = message.localUri != null &&
+                                        message.status == MessageStatus.SENDING,
+                                    failed = message.localUri != null &&
+                                        message.status == MessageStatus.FAILED,
+                                    onRetry = { onRetryMedia(message) }
+                                )
+                            }
+
+                            "audio", "voice" -> {
+                                VoicePlayer(
+                                    url = message.localUri ?: message.content,
+                                    isMine = message.isMine
+                                )
+                            }
+
+                            "file" -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = ChatAccent
+                                    )
+
+                                    Spacer(Modifier.width(6.dp))
+
+                                    Text(
+                                        text = "ملف مرفق",
+                                        color = ChatText
+                                    )
+                                }
+
+                                AttachmentLink(message.content)
+                            }
+
+                            else -> {
+                                Text(
+                                    text = message.content,
+                                    color = ChatText,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (message.reactions.isNotEmpty()) {
+                    Spacer(Modifier.height(3.dp))
+
+                    ReactionChips(
+                        reactions = message.reactions,
+                        currentUserCode = currentUserCode
+                    )
+                }
+
+                // تفاصيل الرسالة (الوقت وحالة التسليم) خارج الفقاعة
+                Row(
+                    modifier = Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    if (message.time.isNotBlank()) {
+                        Text(
+                            text = message.time,
+                            color = ChatMuted,
+                            fontSize = 10.sp
+                        )
                     }
 
-                    else -> {
-                        Text(
-                            text = message.content,
-                            color = ChatText,
-                            fontSize = 15.sp
-                        )
+                    if (message.isMine) {
+                        MessageStatusIndicator(message.status)
                     }
                 }
             }
+        }
+    }
+}
 
-            // تفاصيل الرسالة (الوقت وحالة التسليم والحذف) خارج الفقاعة
+@Composable
+private fun QuotedMessage(
+    message: Message,
+    otherName: String,
+    currentUserCode: String
+) {
+    val senderLabel = if (
+        message.replyToSenderId.isNotBlank() &&
+        message.replyToSenderId == currentUserCode
+    ) {
+        "أنت"
+    } else {
+        otherName
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Color.Black.copy(alpha = 0.22f),
+                RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(30.dp)
+                .background(ChatAccent, RoundedCornerShape(2.dp))
+        )
+
+        Spacer(Modifier.width(8.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = senderLabel,
+                color = ChatAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = message.replyToPreview.ifBlank { "رسالة" },
+                color = ChatMuted,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReactionChips(
+    reactions: List<com.wasal.app.data.model.MessageReaction>,
+    currentUserCode: String
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        reactions.groupBy { it.emoji }.forEach { (emoji, users) ->
+            val mine = users.any { it.userCode == currentUserCode }
+
             Row(
-                modifier = Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                modifier = Modifier
+                    .background(
+                        if (mine) ChatBubbleMine else ChatBubbleOther,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .border(
+                        1.dp,
+                        if (mine) ChatAccent else Color.Transparent,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (message.isMine &&
-                    !message.deletedForEveryone &&
-                    !message.isLocalPending
-                ) {
-                    IconButton(
-                        onClick = { onDeleteMessage(message, true) },
-                        modifier = Modifier.size(18.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "حذف الرسالة لدى الجميع",
-                            tint = ChatMuted,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-                }
+                Text(text = emoji, fontSize = 12.sp)
 
-                if (message.time.isNotBlank()) {
+                if (users.size > 1) {
+                    Spacer(Modifier.width(3.dp))
+
                     Text(
-                        text = message.time,
+                        text = users.size.toString(),
                         color = ChatMuted,
                         fontSize = 10.sp
                     )
-                }
-
-                if (message.isMine) {
-                    MessageStatusIndicator(message.status)
                 }
             }
         }

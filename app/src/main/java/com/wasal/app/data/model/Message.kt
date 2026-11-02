@@ -1,5 +1,10 @@
 package com.wasal.app.data.model
 
+data class MessageReaction(
+    val userCode: String,
+    val emoji: String
+)
+
 data class Message(
     val id: String,
     val content: String,
@@ -10,7 +15,13 @@ data class Message(
     val senderCode: String = "",
     val deletedForEveryone: Boolean = false,
     // معاينة محلية (صورة/فيديو) تُعرض لحظة الإرسال قبل رفع الملف
-    val localUri: String? = null
+    val localUri: String? = null,
+    // الرد على رسالة: معرّف الرسالة المقتبسة ونصّها المختصر
+    val replyToId: String? = null,
+    val replyToType: String = "text",
+    val replyToSenderId: String = "",
+    val replyToPreview: String = "",
+    val reactions: List<MessageReaction> = emptyList()
 )
 
 val Message.isLocalPending: Boolean

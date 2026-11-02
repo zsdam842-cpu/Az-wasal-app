@@ -3,6 +3,7 @@ package com.wasal.app.data.repository
 import android.content.Context
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.data.model.Message
+import com.wasal.app.data.model.MessageReaction
 import com.wasal.app.data.model.MessageStatus
 import com.wasal.app.data.network.CoreApiClient
 import com.wasal.app.data.network.ServerConfig
@@ -114,6 +115,8 @@ class MessageRepository(
 
                 val status = parseStatus(item)
 
+                val quoted = item.optJSONObject("replyTo")
+
                 messages.add(
                     Message(
                         id = id,
@@ -123,7 +126,16 @@ class MessageRepository(
                         type = normalizeType(
                             item.optString("type", "text")
                         ),
-                        status = status
+                        status = status,
+                        replyToId = item.optString("replyToId")
+                            .takeIf { it.isNotBlank() && it != "null" },
+                        replyToType = normalizeType(
+                            quoted?.optString("type", "text") ?: "text"
+                        ),
+                        replyToSenderId = quoted?.optString("senderId", "").orEmpty(),
+                        replyToPreview = quoted?.optString("content", "")
+                            .orEmpty(),
+                        reactions = parseReactions(item)
                     )
                 )
             }
@@ -139,7 +151,8 @@ class MessageRepository(
         conversationId: String,
         content: String,
         accessToken: String,
-        currentUserId: String
+        currentUserId: String,
+        replyToId: String? = null
     ): Result<Message> {
         val cleanContent = content.trim()
 
@@ -161,6 +174,11 @@ class MessageRepository(
             .put("conversationId", conversationId)
             .put("type", "text")
             .put("content", cleanContent)
+            .apply {
+                if (!replyToId.isNullOrBlank()) {
+                    put("replyToId", replyToId)
+                }
+            }
             .toString()
 
         val responseResult = apiClient.execute { token ->
@@ -211,7 +229,8 @@ class MessageRepository(
         conversationId: String,
         media: UploadedMedia,
         accessToken: String,
-        currentUserId: String
+        currentUserId: String,
+        replyToId: String? = null
     ): Result<Message> {
         if (conversationId.isBlank() || accessToken.isBlank()) {
             return Result.failure(
@@ -238,6 +257,11 @@ class MessageRepository(
             .put("conversationId", conversationId)
             .put("type", type)
             .put("content", media.url)
+            .apply {
+                if (!replyToId.isNullOrBlank()) {
+                    put("replyToId", replyToId)
+                }
+            }
             .toString()
 
         val responseResult = apiClient.execute { token ->
@@ -298,6 +322,8 @@ class MessageRepository(
 
         val deleted = payload.optBoolean("deletedForEveryone", false)
 
+        val quoted = payload.optJSONObject("replyTo")
+
         return Message(
             id = id,
             content = if (deleted) "" else content,
@@ -306,7 +332,15 @@ class MessageRepository(
             type = normalizeType(payload.optString("type", "text")),
             status = parseStatus(payload),
             senderCode = payload.optString("senderCode", ""),
-            deletedForEveryone = deleted
+            deletedForEveryone = deleted,
+            replyToId = payload.optString("replyToId")
+                .takeIf { it.isNotBlank() && it != "null" },
+            replyToType = normalizeType(
+                quoted?.optString("type", "text") ?: "text"
+            ),
+            replyToSenderId = quoted?.optString("senderId", "").orEmpty(),
+            replyToPreview = quoted?.optString("content", "").orEmpty(),
+            reactions = parseReactions(payload)
         )
     }
 
@@ -374,6 +408,83 @@ class MessageRepository(
             "SENDING", "PENDING" -> MessageStatus.SENDING
             else -> MessageStatus.SENT
         }
+    }
+
+    private fun parseReactions(item: JSONObject): List<MessageReaction> {
+        val array = item.optJSONArray("reactions") ?: return emptyList()
+
+        val reactions = mutableListOf<MessageReaction>()
+
+        for (index in 0 until array.length()) {
+            val entry = array.optJSONObject(index) ?: continue
+            val emoji = entry.optString("emoji").trim()
+            val userCode = entry.optString("userCode").trim()
+
+            if (emoji.isNotBlank()) {
+                reactions.add(MessageReaction(userCode = userCode, emoji = emoji))
+            }
+        }
+
+        return reactions
+    }
+
+    /** تفاعل على رسالة (قلب/إعجاب...) — نفس التفاعل مرتين يلغيه. */
+    suspend fun setReaction(
+        messageId: String,
+        emoji: String
+    ): Result<List<MessageReaction>> {
+        if (messageId.isBlank() || emoji.isBlank()) {
+            return Result.failure(IllegalArgumentException("تفاعل غير صالح."))
+        }
+
+        val payload = JSONObject().put("emoji", emoji).toString()
+
+        val result = apiClient.execute { token ->
+            CoreApiClient.post("/api/messages/$messageId/reactions", payload, token)
+        }
+
+        val response = result.getOrElse { return Result.failure(it) }
+
+        if (!response.isSuccessful) {
+            return Result.failure(
+                IOException(
+                    if (response.code == 401) {
+                        "انتهت جلسة الدخول."
+                    } else {
+                        "تعذر إضافة التفاعل. رمز الاستجابة: ${response.code}"
+                    }
+                )
+            )
+        }
+
+        return Result.success(
+            parseReactions(JSONObject(response.body))
+        )
+    }
+
+    /** إزالة تفاعلي من رسالة. */
+    suspend fun clearReaction(
+        messageId: String
+    ): Result<List<MessageReaction>> {
+        if (messageId.isBlank()) {
+            return Result.failure(IllegalArgumentException("معرّف غير صالح."))
+        }
+
+        val result = apiClient.execute { token ->
+            CoreApiClient.delete("/api/messages/$messageId/reactions", token)
+        }
+
+        val response = result.getOrElse { return Result.failure(it) }
+
+        if (!response.isSuccessful) {
+            return Result.failure(
+                IOException("تعذر إزالة التفاعل. رمز الاستجابة: ${response.code}")
+            )
+        }
+
+        return Result.success(
+            parseReactions(JSONObject(response.body))
+        )
     }
 
     private fun normalizeType(type: String): String {
@@ -532,7 +643,20 @@ class MessageRepository(
                     type = normalizeType(
                         item.optString("type", fallbackType)
                     ),
-                    status = status
+                    status = status,
+                    replyToId = item.optString("replyToId")
+                        .takeIf { it.isNotBlank() && it != "null" },
+                    replyToType = normalizeType(
+                        item.optJSONObject("replyTo")?.optString("type", "text")
+                            ?: "text"
+                    ),
+                    replyToSenderId = item.optJSONObject("replyTo")
+                        ?.optString("senderId", "")
+                        .orEmpty(),
+                    replyToPreview = item.optJSONObject("replyTo")
+                        ?.optString("content", "")
+                        .orEmpty(),
+                    reactions = parseReactions(item)
                 )
             )
         } catch (error: Exception) {
