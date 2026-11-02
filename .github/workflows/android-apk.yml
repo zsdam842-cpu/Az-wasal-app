@@ -1,19 +1,24 @@
-
 name: Build Wasal Android APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: wasal-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build debug APK
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
       - name: Checkout source
@@ -26,22 +31,48 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools'
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Set up Gradle 8.9
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --list_installed | grep -E "platforms;android-35|build-tools;35.0.0"
+
+      - name: Set up Gradle (wrapper)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
 
-      - name: Build APK
-        run: gradle assembleDebug --no-daemon
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Gradle configuration check
+        run: ./gradlew :app:tasks --all -q > /dev/null && echo "configuration ok"
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Verify APK output
+        run: |
+          ls -l app/build/outputs/apk/debug/
+          test -n "$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wasal-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasal-build-reports
+          path: |
+            app/build/reports/**
+            **/build/reports/**
+          if-no-files-found: warn
+          retention-days: 7
