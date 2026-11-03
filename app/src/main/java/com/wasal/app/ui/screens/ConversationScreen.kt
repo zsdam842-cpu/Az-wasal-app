@@ -52,8 +52,11 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
@@ -427,6 +430,7 @@ fun ConversationScreen(
                             MessageBubble(
                                 message = message,
                                 otherName = title,
+                                otherAvatarUrl = otherAvatarUrl,
                                 currentUserCode = currentUserCode,
                                 mediaAccessToken = mediaAccessToken,
                                 selected = actionTarget?.id == message.id,
@@ -685,24 +689,87 @@ fun ConversationScreen(
                 } else {
                     LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                         items(media) { item ->
-                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val kind = item.type.lowercase()
+
+                                // معاينة مصغّرة بدل طباعة الرابط الخام.
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(ChatBubbleOther),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (kind == "image" && item.content.isNotBlank()) {
+                                        SubcomposeAsyncImage(
+                                            model = ImageRequest.Builder(
+                                                androidx.compose.ui.platform
+                                                    .LocalContext.current
+                                            )
+                                                .data(item.content)
+                                                .build(),
+                                            contentDescription = "صورة",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize(),
+                                            loading = { },
+                                            error = {
+                                                Icon(
+                                                    Icons.Default.Image,
+                                                    contentDescription = null,
+                                                    tint = ChatMuted
+                                                )
+                                            }
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = when (kind) {
+                                                "video" -> Icons.Default.PlayCircle
+                                                "audio", "voice" -> Icons.Default.PlayCircle
+                                                "file" -> Icons.Default.Description
+                                                else -> Icons.Default.Link
+                                            },
+                                            contentDescription = null,
+                                            tint = ChatAccent
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.width(10.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = when (kind) {
+                                            "image" -> "صورة"
+                                            "video" -> "فيديو"
+                                            "audio", "voice" -> "رسالة صوتية"
+                                            "file" -> "مستند"
+                                            else -> "رابط"
+                                        },
+                                        color = ChatText,
+                                        fontSize = 13.sp
+                                    )
+
+                                    if (kind == "link" || kind == "file") {
+                                        Text(
+                                            text = item.content.take(70),
+                                            color = ChatMuted,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
                                 Text(
-                                    text = when (item.type.lowercase()) {
-                                        "image" -> "صورة"
-                                        "video" -> "فيديو"
-                                        "audio", "voice" -> "رسالة صوتية"
-                                        "file" -> "مستند"
-                                        else -> "رابط"
-                                    },
-                                    color = ChatAccent,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    text = item.content.take(90),
+                                    text = item.time,
                                     color = ChatMuted,
-                                    fontSize = 12.sp
+                                    fontSize = 11.sp
                                 )
-                                Text(text = item.time, color = ChatMuted, fontSize = 10.sp)
                             }
                         }
                     }
@@ -865,7 +932,9 @@ fun ConversationScreen(
 @Composable
 private fun VoicePlayer(
     url: String,
-    isMine: Boolean
+    isMine: Boolean,
+    senderName: String = "",
+    senderAvatarUrl: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -873,6 +942,7 @@ private fun VoicePlayer(
     var isPlaying by remember(url) { mutableStateOf(false) }
     var isPreparing by remember(url) { mutableStateOf(false) }
     var durationSeconds by remember(url) { mutableIntStateOf(0) }
+    var progress by remember(url) { mutableFloatStateOf(0f) }
     var player by remember(url) {
         mutableStateOf<android.media.MediaPlayer?>(null)
     }
@@ -881,15 +951,30 @@ private fun VoicePlayer(
         runCatching { player?.release() }
         player = null
         isPlaying = false
+        progress = 0f
     }
 
     DisposableEffect(url) {
         onDispose { releasePlayer() }
     }
 
+    // تحديث مؤشر التقدم أثناء التشغيل
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            val current = player
+
+            if (current != null && current.duration > 0) {
+                progress = (current.currentPosition.toFloat() / current.duration)
+                    .coerceIn(0f, 1f)
+            }
+
+            kotlinx.coroutines.delay(200)
+        }
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.widthIn(min = 210.dp, max = 260.dp)
     ) {
         IconButton(
             enabled = url.isNotBlank() && !isPreparing,
@@ -903,13 +988,11 @@ private fun VoicePlayer(
                 isPreparing = true
 
                 scope.launch {
-                    // تنزيل الملف ثم تشغيله محليًا: التشغيل المباشر عبر الشبكة
-                    // كان ينتج صوتًا مشوّشًا وصفيرًا في بعض الأجهزة.
+                    // تنزيل الملف ثم تشغيله محليًا: البث المباشر كان ينتج
+                    // صوتًا مشوّشًا وصفيرًا في بعض الأجهزة.
                     val file = runCatching {
                         withContext(Dispatchers.IO) {
-                            val request = okhttp3.Request.Builder()
-                                .url(url)
-                                .build()
+                            val request = okhttp3.Request.Builder().url(url).build()
 
                             val response = com.wasal.app.data.network
                                 .CoreApiClient.client
@@ -918,9 +1001,7 @@ private fun VoicePlayer(
 
                             if (!response.isSuccessful) {
                                 response.close()
-                                throw java.io.IOException(
-                                    "تعذر تنزيل الرسالة الصوتية."
-                                )
+                                throw java.io.IOException("تعذر تنزيل الرسالة الصوتية.")
                             }
 
                             val body = response.body
@@ -962,8 +1043,7 @@ private fun VoicePlayer(
                         newPlayer.setOnCompletionListener { releasePlayer() }
                         newPlayer.prepare()
 
-                        durationSeconds = (newPlayer.duration / 1000)
-                            .coerceAtLeast(1)
+                        durationSeconds = (newPlayer.duration / 1000).coerceAtLeast(1)
 
                         newPlayer.start()
 
@@ -979,26 +1059,83 @@ private fun VoicePlayer(
             }
         ) {
             Icon(
-                Icons.Default.PlayCircle,
-                contentDescription = if (isPlaying) {
-                    "إيقاف تشغيل الرسالة الصوتية"
-                } else {
-                    "تشغيل الرسالة الصوتية"
-                },
-                tint = ChatAccent
+                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = "تشغيل الرسالة الصوتية",
+                tint = ChatAccent,
+                modifier = Modifier.size(28.dp)
             )
         }
 
+        // موجات صوتية ثابتة تعطي شكل الرسالة الصوتية المعروف.
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .height(22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            val heights = listOf(
+                8, 14, 20, 11, 17, 9, 22, 13, 18, 10,
+                16, 21, 12, 8, 19, 14, 9, 17, 11, 20
+            )
+
+            heights.forEachIndexed { index, h ->
+                val played = index.toFloat() / heights.size <= progress
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height((h * (if (played) 1f else 0.75f)).dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            if (played) ChatAccent else ChatMuted.copy(alpha = 0.55f)
+                        )
+                )
+            }
+        }
+
+        Spacer(Modifier.width(8.dp))
+
         Text(
-            text = when {
-                isPlaying -> "جارٍ التشغيل… اضغط للإيقاف"
-                isPreparing -> "جارٍ التحميل…"
-                durationSeconds > 0 -> "رسالة صوتية · ${formatVoiceDuration(durationSeconds)}"
-                else -> "رسالة صوتية — اضغط للتشغيل"
+            text = if (durationSeconds > 0) {
+                formatVoiceDuration(durationSeconds)
+            } else {
+                "0:00"
             },
-            color = ChatText,
-            fontSize = 13.sp
+            color = ChatMuted,
+            fontSize = 11.sp
         )
+
+        // صورة المرسل المصغّرة مع شارة ميكروفون، للرسائل الواردة فقط.
+        if (!isMine) {
+            Spacer(Modifier.width(8.dp))
+
+            Box {
+                WasalAvatar(
+                    name = senderName.ifBlank { "مستخدم وصال" },
+                    avatarUrl = senderAvatarUrl,
+                    size = 30.dp,
+                    background = ChatBubbleMine,
+                    accent = ChatAccent
+                )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(13.dp)
+                        .clip(CircleShape)
+                        .background(ChatAccent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(9.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1114,6 +1251,7 @@ private fun quoteSnippet(message: Message): String = when (message.type.lowercas
 private fun MessageBubble(
     message: Message,
     otherName: String,
+    otherAvatarUrl: String? = null,
     currentUserCode: String,
     mediaAccessToken: String,
     selected: Boolean,
@@ -1265,7 +1403,9 @@ private fun MessageBubble(
                             "audio", "voice" -> {
                                 VoicePlayer(
                                     url = message.localUri ?: message.content,
-                                    isMine = message.isMine
+                                    isMine = message.isMine,
+                                    senderName = otherName,
+                                    senderAvatarUrl = otherAvatarUrl
                                 )
                             }
 
