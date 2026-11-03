@@ -1093,6 +1093,9 @@ private fun ConversationFlow(
 
                 if (!alreadyListed) {
                     messages = messages + incoming
+
+                    // قراءة فورية: تتحول علامات المرسل إلى زرقاء لحظة الوصول.
+                    SocketService.emitConversationRead(conversation.id)
                 }
             }
         }

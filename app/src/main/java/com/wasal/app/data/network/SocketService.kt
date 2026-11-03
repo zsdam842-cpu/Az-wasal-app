@@ -191,6 +191,19 @@ object SocketService {
         )
     }
 
+    /**
+     * إبلاغ الخادم بقراءة المحادثة الآن، ليظهر للطرف الآخر أن رسائله
+     * قُرئت (العلامتان الزرقاوان) بدل الانتظار حتى إعادة فتح المحادثة.
+     */
+    fun emitConversationRead(conversationId: String) {
+        if (conversationId.isBlank()) return
+
+        emit(
+            "conversation_read",
+            JSONObject().put("conversationId", conversationId)
+        )
+    }
+
     private fun flushPending() {
         while (true) {
             val item = pendingQueue.poll() ?: break
