@@ -152,7 +152,9 @@ fun ConversationScreen(
     onVoiceRecordStop: () -> Unit = {},
     isRecordingVoice: Boolean = false,
     statusMessage: String? = null,
-    mediaAccessToken: String = ""
+    mediaAccessToken: String = "",
+    onStartVoiceCall: () -> Unit = {},
+    onStartVideoCall: () -> Unit = {}
 ) {
     var draft by remember { mutableStateOf("") }
     var showConversationMenu by remember { mutableStateOf(false) }
@@ -249,9 +251,7 @@ fun ConversationScreen(
                 }
 
                 IconButton(
-                    onClick = {
-                        localHint = "مكالمات الفيديو ستُضاف في تحديث قادم."
-                    }
+                    onClick = onStartVideoCall
                 ) {
                     Icon(
                         Icons.Default.Videocam,
@@ -261,9 +261,7 @@ fun ConversationScreen(
                 }
 
                 IconButton(
-                    onClick = {
-                        localHint = "المكالمات الصوتية ستُضاف في تحديث قادم."
-                    }
+                    onClick = onStartVoiceCall
                 ) {
                     Icon(
                         Icons.Default.Call,

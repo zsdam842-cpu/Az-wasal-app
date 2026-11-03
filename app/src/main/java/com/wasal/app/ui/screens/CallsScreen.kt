@@ -2,6 +2,7 @@
 package com.wasal.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,7 +42,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.data.local.AuthDataStore
-import com.wasal.app.data.network.CoreApiClient
+import com.wasal.app.data.network.MediaCallsApiClient
+import com.wasal.app.data.network.ServerConfig
 import com.wasal.app.data.repository.AuthenticatedApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -59,12 +61,16 @@ data class CallLogItem(
     val callerName: String,
     val kind: String,
     val direction: String,
-    val createdAt: String
+    val createdAt: String,
+    val peerId: String = "",
+    val peerCode: String = "",
+    val durationSeconds: Int = 0
 )
 
 @Composable
 fun CallsScreen(
-    authDataStore: AuthDataStore
+    authDataStore: AuthDataStore,
+    onRedial: (CallLogItem) -> Unit = {}
 ) {
     val apiClient = remember { AuthenticatedApiClient(authDataStore) }
     val scope = rememberCoroutineScope()
@@ -79,9 +85,14 @@ fun CallsScreen(
             errorMessage = null
 
             try {
+                // سجل المكالمات يعيش في قاعدة بيانات خادم الوسائط والمكالمات،
+                // وطلبه من خادم الرسائل كان يُرجع قائمة فارغة دائمًا.
                 val result = withContext(Dispatchers.IO) {
                     apiClient.execute { token ->
-                        CoreApiClient.get("/api/calls", token)
+                        MediaCallsApiClient.get(
+                            ServerConfig.CALLS_ENDPOINT,
+                            token
+                        )
                     }
                 }
 
@@ -105,10 +116,15 @@ fun CallsScreen(
                             CallLogItem(
                                 id = item.optString("id").ifBlank { index.toString() },
                                 callerName = item.optString("callerName")
+                                    .ifBlank { item.optString("name") }
+                                    .ifBlank { item.optString("peerName") }
                                     .ifBlank { "مستخدم وصال" },
                                 kind = item.optString("kind", "audio"),
                                 direction = item.optString("direction", "outgoing"),
-                                createdAt = item.optString("createdAt")
+                                createdAt = item.optString("createdAt"),
+                                peerId = item.optString("peerId"),
+                                peerCode = item.optString("peerCode"),
+                                durationSeconds = item.optInt("durationSeconds", 0)
                             )
                         )
                     }
@@ -137,13 +153,29 @@ fun CallsScreen(
                 .background(CallsBackground)
                 .padding(horizontal = 16.dp)
         ) {
-            Text(
-                text = "سجل المكالمات",
-                color = CallsText,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "سجل المكالمات",
+                    color = CallsText,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = 12.dp, bottom = 8.dp)
+                )
+
+                Text(
+                    text = "تحديث",
+                    color = CallsAccent,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable { loadCalls() }
+                        .padding(8.dp)
+                )
+            }
 
             when {
                 isLoading -> {
@@ -236,6 +268,7 @@ fun CallsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(CallsCard, RoundedCornerShape(14.dp))
+                                    .clickable { onRedial(call) }
                                     .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -261,10 +294,26 @@ fun CallsScreen(
                                     )
 
                                     Text(
-                                        text = when (call.direction) {
-                                            "incoming" -> "مكالمة واردة"
-                                            "missed" -> "مكالمة فائتة"
-                                            else -> "مكالمة صادرة"
+                                        text = buildString {
+                                            append(
+                                                when (call.direction) {
+                                                    "incoming" -> "مكالمة واردة"
+                                                    "missed" -> "مكالمة فائتة"
+                                                    else -> "مكالمة صادرة"
+                                                }
+                                            )
+
+                                            if (call.durationSeconds > 0) {
+                                                append(" · ")
+                                                append(call.durationSeconds / 60)
+                                                append(":")
+                                                append(
+                                                    (call.durationSeconds % 60)
+                                                        .toString()
+
+                                                        .padStart(2, '0')
+                                                )
+                                            }
                                         },
                                         color = CallsMuted,
                                         fontSize = 12.sp

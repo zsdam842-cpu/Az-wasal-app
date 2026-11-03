@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Delete
@@ -62,11 +63,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.wasal.app.call.CallKind
+import com.wasal.app.call.CallManager
+import com.wasal.app.call.CallScreen
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.util.VoiceRecorderManager
 import com.wasal.app.data.local.SettingsDataStore
@@ -289,6 +295,132 @@ private fun WasalHomeScreen(
         MediaRepository(context, authDataStore)
     }
 
+    // ---------------- المكالمات (WebRTC حقيقي) ----------------
+    val callManager = remember(context, authDataStore) {
+        CallManager(context, authDataStore)
+    }
+
+    val callState by callManager.state.collectAsState()
+
+    DisposableEffect(callManager) {
+        onDispose { callManager.release() }
+    }
+
+    // اسم المستخدم ورمزه يُرسلان مع المكالمة ليظهر السجل بأسماء صحيحة.
+    LaunchedEffect(displayName, wasalCode) {
+        callManager.updateLocalIdentity(displayName, wasalCode)
+    }
+
+    var pendingCall by remember {
+        mutableStateOf<Pair<Conversation, CallKind>?>(null)
+    }
+
+    val callPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val target = pendingCall
+        pendingCall = null
+
+        if (target == null) {
+            return@rememberLauncherForActivityResult
+        }
+
+        val (targetConversation, targetKind) = target
+
+        // لو مُنع الميكروفون لا يمكن إجراء المكالمة أصلًا.
+        val audioAllowed = if (
+            granted.containsKey(Manifest.permission.RECORD_AUDIO)
+        ) {
+            granted[Manifest.permission.RECORD_AUDIO] == true
+        } else {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+
+        if (!audioAllowed) {
+            return@rememberLauncherForActivityResult
+        }
+
+        val cameraAllowed = targetKind != CallKind.VIDEO || (
+            granted[Manifest.permission.CAMERA]
+                ?: (
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                    )
+            ) == true
+
+        callManager.startCall(
+            peerId = targetConversation.peerId,
+            peerName = targetConversation.title,
+            peerCode = targetConversation.otherCode,
+            kind = if (cameraAllowed) targetKind else CallKind.AUDIO
+        )
+    }
+
+    fun requestCall(conversation: Conversation, kind: CallKind) {
+        if (callState.isBusy) {
+            return
+        }
+
+        pendingCall = conversation to kind
+
+        val needed = buildList {
+            if (
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                add(Manifest.permission.RECORD_AUDIO)
+            }
+
+            if (
+                kind == CallKind.VIDEO &&
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                add(Manifest.permission.CAMERA)
+            }
+        }
+
+        if (needed.isEmpty()) {
+            pendingCall = null
+
+            callManager.startCall(
+                peerId = conversation.peerId,
+                peerName = conversation.title,
+                peerCode = conversation.otherCode,
+                kind = kind
+            )
+        } else {
+            callPermissionLauncher.launch(needed.toTypedArray())
+        }
+    }
+
+    // شاشة المكالمة تغطي التطبيق كله (حوار ملء الشاشة) حتى تظهر من أي شاشة.
+    if (callState.isBusy) {
+        Dialog(
+            onDismissRequest = { },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            )
+        ) {
+            CallScreen(
+                state = callState,
+                manager = callManager,
+                onDismiss = { }
+            )
+        }
+    }
+
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -437,6 +569,9 @@ private fun WasalHomeScreen(
                     .apply()
                 conversations = conversations.filterNot { it.id == currentConversation.id }
                 selectedConversation = null
+            },
+            onStartCall = { kind ->
+                requestCall(currentConversation, kind)
             }
         )
         return
@@ -714,7 +849,24 @@ private fun WasalHomeScreen(
 
                 3 -> {
                     CallsScreen(
-                        authDataStore = authDataStore
+                        authDataStore = authDataStore,
+                        onRedial = { item ->
+                            if (item.peerId.isNotBlank()) {
+                                requestCall(
+                                    Conversation(
+                                        id = "",
+                                        title = item.callerName,
+                                        peerId = item.peerId,
+                                        otherCode = item.peerCode
+                                    ),
+                                    if (item.kind == "video") {
+                                        CallKind.VIDEO
+                                    } else {
+                                        CallKind.AUDIO
+                                    }
+                                )
+                            }
+                        }
                     )
                 }
 
@@ -886,7 +1038,8 @@ private fun ConversationFlow(
     otherAvatarUrl: String? = null,
     otherBio: String = "",
     onBack: () -> Unit,
-    onArchive: () -> Unit = {}
+    onArchive: () -> Unit = {},
+    onStartCall: (CallKind) -> Unit = {}
 ) {
     val messageRepository = remember(authDataStore) {
         MessageRepository(authDataStore)
@@ -1393,6 +1546,8 @@ private fun ConversationFlow(
         onDraftChanged = { isTyping ->
             SocketService.emitTyping(conversation.id, isTyping)
         },
+        onStartVoiceCall = { onStartCall(CallKind.AUDIO) },
+        onStartVideoCall = { onStartCall(CallKind.VIDEO) },
         onEditMessage = { message, newText ->
             scope.launch {
                 try {

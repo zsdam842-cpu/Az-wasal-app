@@ -7,6 +7,10 @@ object ServerConfig {
         "https://az-wasal-server-production.up.railway.app"
 
     // خادم الوسائط والمكالمات والصور والفيديو والصوت
+    //
+    // تنبيه مهم: العنوان القديم wasal-media-server-production.up.railway.app
+    // لا وجود له على Railway ويعيد 404 «Application not found»، وكان سبب
+    // فشل كل الصور والصوت والمكالمات. الاسم الصحيح يحمل بادئة az-.
     const val MEDIA_CALLS_SERVER_URL =
         "https://az-wasal-media-server-production.up.railway.app"
 
@@ -23,8 +27,23 @@ object ServerConfig {
     // واجهات خادم الوسائط والمكالمات
     const val MEDIA_ENDPOINT = "/api/media"
     const val CALLS_ENDPOINT = "/api/calls"
+    const val ICE_SERVERS_ENDPOINT = "/api/calls/ice-servers"
 
-    // خادم STUN للمكالمات
+    // خادم STUN الاحتياطي (يُستخدم فقط إذا تعذّر جلب القائمة من الخادم)
     const val STUN_SERVER =
         "stun:stun.l.google.com:19302"
+
+    /** عنوان WebSocket لخادم المكالمات. */
+    val mediaSocketUrl: String
+        get() = MEDIA_CALLS_SERVER_URL
+            .replaceFirst("https://", "wss://")
+            .replaceFirst("http://", "ws://")
+            .trimEnd('/')
+
+    /** عنوان WebSocket لخادم الرسائل. */
+    val coreSocketUrl: String
+        get() = CORE_SERVER_URL
+            .replaceFirst("https://", "wss://")
+            .replaceFirst("http://", "ws://")
+            .trimEnd('/')
 }

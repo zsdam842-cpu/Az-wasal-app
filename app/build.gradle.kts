@@ -12,8 +12,8 @@ android {
         applicationId = "com.wasal.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 7
+        versionName = "1.6"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
@@ -53,6 +53,10 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    // WebRTC الحقيقي للمكالمات الصوتية والمرئية (مُحزَّم من Maven Central).
+    implementation("io.github.webrtc-sdk:android:125.6422.07")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

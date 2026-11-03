@@ -152,6 +152,27 @@ class ChatRepository(
                     else -> ""
                 }
 
+                // معرّف الطرف الآخر: users.id أولًا، ثم رمز وصال.
+                // بدونه لا يعرف التطبيق إلى أي مستخدم يوجّه المكالمة.
+                val peerObject = item.optJSONObject("user")
+
+                val peerId = peerObject
+                    ?.optString("id")
+                    ?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: item.optString("peerId")
+                        .takeIf { it.isNotBlank() && it != "null" }
+                    ?: ""
+
+                val otherCode = item.optString("otherCode")
+                    .ifBlank {
+                        item.optString("peerCode")
+                    }
+                    .ifBlank {
+                        peerObject?.optString("code")
+                            ?.takeIf { it.isNotBlank() && it != "null" }
+                            .orEmpty()
+                    }
+
                 conversations.add(
                     Conversation(
                         id = id,
@@ -159,12 +180,14 @@ class ChatRepository(
                         lastMessage = lastMessage,
                         time = time,
                         unreadCount = item.optInt("unreadCount", 0),
-                        avatarUrl = item.optJSONObject("user")
+                        avatarUrl = peerObject
                             ?.optString("avatarUrl")
                             ?.takeIf { it.isNotBlank() && it != "null" },
-                        bio = item.optJSONObject("user")
+                        bio = peerObject
                             ?.optString("bio")
-                            .orEmpty()
+                            .orEmpty(),
+                        peerId = peerId,
+                        otherCode = otherCode
                     )
                 )
             }
@@ -202,6 +225,8 @@ class ChatRepository(
                     .put("lastMessage", conversation.lastMessage)
                     .put("time", conversation.time)
                     .put("unreadCount", conversation.unreadCount)
+                    .put("peerId", conversation.peerId)
+                    .put("otherCode", conversation.otherCode)
             )
         }
 
@@ -248,7 +273,9 @@ class ChatRepository(
                             ""
                         ),
                         time = item.optString("time", ""),
-                        unreadCount = item.optInt("unreadCount", 0)
+                        unreadCount = item.optInt("unreadCount", 0),
+                        peerId = item.optString("peerId", ""),
+                        otherCode = item.optString("otherCode", "")
                     )
                 )
             }
