@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,8 +83,10 @@ fun StatusesScreen(
     var statuses by remember { mutableStateOf<List<StatusItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showAddDialog by remember { mutableStateOf(false) }
-    var draftText by remember { mutableStateOf("") }
+    // يُحفظ عبر إعادة إنشاء الشاشة حتى لا تُغلق نافذة الإضافة بعد
+    // اختيار صورة أو فيديو من المعرض.
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var draftText by rememberSaveable { mutableStateOf("") }
     var isPublishing by remember { mutableStateOf(false) }
 
     val context = LocalContext.current

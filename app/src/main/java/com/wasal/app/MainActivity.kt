@@ -58,6 +58,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -146,7 +147,9 @@ private fun WasalHomeScreen(
     context: Context,
     settingsDataStore: SettingsDataStore
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    // rememberSaveable: لا يرجع المستخدم إلى تبويب المحادثات بعد فتح معرض
+    // الصور أو الكاميرا (كانت الحالة تُفقد عند إعادة إنشاء الشاشة).
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     var openAddFormSignal by remember { mutableIntStateOf(0) }
 

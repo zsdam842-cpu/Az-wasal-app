@@ -1,6 +1,8 @@
 package com.wasal.app.call
 
 import android.content.Context
+import android.media.AudioManager
+import android.media.MediaRecorder
 import android.util.Log
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
@@ -27,6 +29,7 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoCapturer
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -56,6 +59,12 @@ class WebRtcEngine(
     }
 
     private var factory: PeerConnectionFactory? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
+
+    private val audioManager: AudioManager? by lazy {
+        context.applicationContext
+            .getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
     private var peerConnection: PeerConnection? = null
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
@@ -141,6 +150,8 @@ class WebRtcEngine(
         }
 
         return try {
+            startAudioSession()
+
             val createdFactory = ensureFactory() ?: run {
                 listener.onError("تعذر تهيئة محرك المكالمات على هذا الجهاز.")
                 return false
@@ -384,6 +395,8 @@ class WebRtcEngine(
         peerConnection = null
         remoteDescriptionSet = false
         synchronized(pendingCandidates) { pendingCandidates.clear() }
+
+        stopAudioSession()
     }
 
     private fun answer(
@@ -431,6 +444,41 @@ class WebRtcEngine(
         }
     }
 
+    /**
+     * تهيئة مسار الصوت للمكالمة: وضع الاتصال + مكبّر الصوت.
+     * بدونه يخرج الصوت من سماعة الأذن أو لا يخرج إطلاقًا على أجهزة كثيرة.
+     */
+    private fun startAudioSession() {
+        runCatching {
+            val manager = audioManager ?: return
+
+            @Suppress("DEPRECATION")
+            manager.mode = AudioManager.MODE_IN_COMMUNICATION
+
+            @Suppress("DEPRECATION")
+            manager.isSpeakerphoneOn = true
+
+            val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            manager.setStreamVolume(
+                AudioManager.STREAM_VOICE_CALL,
+                (maxVolume * 0.9f).toInt(),
+                0
+            )
+        }
+    }
+
+    private fun stopAudioSession() {
+        runCatching {
+            val manager = audioManager ?: return
+
+            @Suppress("DEPRECATION")
+            manager.isSpeakerphoneOn = false
+
+            @Suppress("DEPRECATION")
+            manager.mode = AudioManager.MODE_NORMAL
+        }
+    }
+
     private fun ensureFactory(): PeerConnectionFactory? {
         factory?.let { return it }
 
@@ -459,8 +507,22 @@ class WebRtcEngine(
                     eglBase.eglBaseContext
                 )
 
+                // وحدة صوت صريحة: الإعداد الافتراضي كان يترك بعض الأجهزة
+                // بلا صوت إطلاقًا في المكالمة. هنا نفعّل إلغاء الصدى وكتم
+                // الضجيج ونستخدم مصدر الصوت المخصص للمكالمات.
+                val adm = JavaAudioDeviceModule.builder(context.applicationContext)
+                    .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                    .setUseHardwareAcousticEchoCanceler(true)
+                    .setUseHardwareNoiseSuppressor(true)
+                    .setUseStereoInput(false)
+                    .setUseStereoOutput(false)
+                    .createAudioDeviceModule()
+
+                audioDeviceModule = adm
+
                 val created = PeerConnectionFactory
                     .builder()
+                    .setAudioDeviceModule(adm)
                     .setVideoEncoderFactory(encoderFactory)
                     .setVideoDecoderFactory(decoderFactory)
                     .createPeerConnectionFactory()

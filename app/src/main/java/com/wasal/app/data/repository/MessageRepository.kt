@@ -497,11 +497,45 @@ class MessageRepository(
         }
     }
 
+    /**
+     * وقت مختصر للعرض أسفل الفقاعة: الساعة والدقيقة فقط، ويُضاف التاريخ
+     * إذا كانت الرسالة من يوم سابق. النص الكامل الطويل كان يفسد شكل الفقاعة.
+     */
     private fun formatTime(createdAt: String): String {
-        return createdAt
-            .replace("T", " ")
-            .substringBefore(".")
-            .removeSuffix("Z")
+        if (createdAt.isBlank()) return ""
+
+        return try {
+            val normalized = createdAt
+                .replace(" ", "T")
+                .substringBefore(".")
+                .removeSuffix("Z")
+
+            val pattern = if (normalized.length >= 19) {
+                "yyyy-MM-dd'T'HH:mm:ss"
+            } else {
+                "yyyy-MM-dd'T'HH:mm"
+            }
+
+            val parser = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
+            parser.timeZone = java.util.TimeZone.getTimeZone("UTC")
+
+            val date = parser.parse(normalized) ?: return createdAt
+
+            val now = java.util.Calendar.getInstance()
+            val then = java.util.Calendar.getInstance().apply { time = date }
+
+            val sameDay = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR) &&
+                now.get(java.util.Calendar.DAY_OF_YEAR) == then.get(java.util.Calendar.DAY_OF_YEAR)
+
+            val formatter = java.text.SimpleDateFormat(
+                if (sameDay) "HH:mm" else "dd/MM HH:mm",
+                java.util.Locale.US
+            )
+
+            formatter.format(date)
+        } catch (_: Exception) {
+            createdAt
+        }
     }
 
     private fun cacheKey(

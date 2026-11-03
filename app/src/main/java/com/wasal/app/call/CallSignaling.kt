@@ -136,16 +136,22 @@ class CallSignaling(
         )
     }
 
+    /**
+     * القبول والرفض والإنهاء تُرسل كمعرّف نصي مجرّد.
+     *
+     * إرسالها ككائن { callId } كان يجعل الخادم يتجاهلها لأنه يتوقع نصًا،
+     * فلا يُقبل الاتصال ولا يُرسل عرض الوسائط وتبدو المكالمة صامتة أو لا تعمل.
+     */
     fun accept(callId: String) {
-        emit("call:accept", JSONObject().put("callId", callId))
+        emitRaw("call:accept", callId)
     }
 
     fun reject(callId: String) {
-        emit("call:reject", JSONObject().put("callId", callId))
+        emitRaw("call:reject", callId)
     }
 
     fun end(callId: String) {
-        emit("call:end", JSONObject().put("callId", callId))
+        emitRaw("call:end", callId)
     }
 
     fun sendOffer(
@@ -205,6 +211,17 @@ class CallSignaling(
 
         socket = null
         isConnected = false
+    }
+
+    private fun emitRaw(event: String, payload: String) {
+        val current = socket
+
+        if (current == null || !isConnected) {
+            Log.w(TAG, "تعذر إرسال $event: قناة المكالمات غير متصلة")
+            return
+        }
+
+        current.emit(event, payload)
     }
 
     private fun emit(event: String, payload: JSONObject) {

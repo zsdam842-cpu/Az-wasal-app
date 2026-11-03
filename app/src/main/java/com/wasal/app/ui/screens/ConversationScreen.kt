@@ -75,8 +75,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,6 +111,9 @@ import com.wasal.app.data.model.Message
 import com.wasal.app.data.model.MessageStatus
 import com.wasal.app.data.model.isLocalPending
 import com.wasal.app.ui.components.WasalAvatar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -863,28 +868,23 @@ private fun VoicePlayer(
     isMine: Boolean
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    var isPlaying by remember(url) {
-        mutableStateOf(false)
-    }
-
+    var isPlaying by remember(url) { mutableStateOf(false) }
+    var isPreparing by remember(url) { mutableStateOf(false) }
+    var durationSeconds by remember(url) { mutableIntStateOf(0) }
     var player by remember(url) {
         mutableStateOf<android.media.MediaPlayer?>(null)
     }
 
     fun releasePlayer() {
-        runCatching {
-            player?.release()
-        }
-
+        runCatching { player?.release() }
         player = null
         isPlaying = false
     }
 
     DisposableEffect(url) {
-        onDispose {
-            releasePlayer()
-        }
+        onDispose { releasePlayer() }
     }
 
     Row(
@@ -892,6 +892,7 @@ private fun VoicePlayer(
         modifier = Modifier.fillMaxWidth()
     ) {
         IconButton(
+            enabled = url.isNotBlank() && !isPreparing,
             onClick = {
                 if (isPlaying) {
                     releasePlayer()
@@ -899,31 +900,83 @@ private fun VoicePlayer(
                 }
 
                 releasePlayer()
+                isPreparing = true
 
-                val newPlayer = android.media.MediaPlayer()
+                scope.launch {
+                    // تنزيل الملف ثم تشغيله محليًا: التشغيل المباشر عبر الشبكة
+                    // كان ينتج صوتًا مشوّشًا وصفيرًا في بعض الأجهزة.
+                    val file = runCatching {
+                        withContext(Dispatchers.IO) {
+                            val request = okhttp3.Request.Builder()
+                                .url(url)
+                                .build()
 
-                runCatching {
-                    newPlayer.setAudioAttributes(
-                        android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                            .build()
-                    )
-                    newPlayer.setDataSource(url)
-                    newPlayer.setOnCompletionListener {
-                        releasePlayer()
+                            val response = com.wasal.app.data.network
+                                .CoreApiClient.client
+                                .newCall(request)
+                                .execute()
+
+                            if (!response.isSuccessful) {
+                                response.close()
+                                throw java.io.IOException(
+                                    "تعذر تنزيل الرسالة الصوتية."
+                                )
+                            }
+
+                            val body = response.body
+                                ?: throw java.io.IOException("الملف فارغ.")
+
+                            val target = java.io.File(
+                                context.cacheDir,
+                                "voice_" + url.hashCode() + ".m4a"
+                            )
+
+                            body.byteStream().use { input ->
+                                target.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+
+                            response.close()
+                            target
+                        }
+                    }.getOrNull()
+
+                    if (file == null || !file.exists() || file.length() == 0L) {
+                        isPreparing = false
+                        return@launch
                     }
-                    newPlayer.prepare()
-                    newPlayer.start()
 
-                    player = newPlayer
-                    isPlaying = true
-                }.onFailure {
-                    runCatching { newPlayer.release() }
-                    isPlaying = false
+                    val newPlayer = android.media.MediaPlayer()
+
+                    runCatching {
+                        newPlayer.setAudioAttributes(
+                            android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                                .setContentType(
+                                    android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+                                )
+                                .build()
+                        )
+                        newPlayer.setDataSource(file.absolutePath)
+                        newPlayer.setOnCompletionListener { releasePlayer() }
+                        newPlayer.prepare()
+
+                        durationSeconds = (newPlayer.duration / 1000)
+                            .coerceAtLeast(1)
+
+                        newPlayer.start()
+
+                        player = newPlayer
+                        isPlaying = true
+                    }.onFailure {
+                        runCatching { newPlayer.release() }
+                        isPlaying = false
+                    }
+
+                    isPreparing = false
                 }
-            },
-            enabled = url.isNotBlank()
+            }
         ) {
             Icon(
                 Icons.Default.PlayCircle,
@@ -937,15 +990,23 @@ private fun VoicePlayer(
         }
 
         Text(
-            text = if (isPlaying) {
-                "جارٍ التشغيل... اضغط للإيقاف"
-            } else {
-                "رسالة صوتية — اضغط للتشغيل"
+            text = when {
+                isPlaying -> "جارٍ التشغيل… اضغط للإيقاف"
+                isPreparing -> "جارٍ التحميل…"
+                durationSeconds > 0 -> "رسالة صوتية · ${formatVoiceDuration(durationSeconds)}"
+                else -> "رسالة صوتية — اضغط للتشغيل"
             },
             color = ChatText,
             fontSize = 13.sp
         )
     }
+}
+
+private fun formatVoiceDuration(totalSeconds: Int): String {
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+
+    return "$minutes:" + seconds.toString().padStart(2, '0')
 }
 
 @Composable
@@ -1236,24 +1297,27 @@ private fun MessageBubble(
                             }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.End)
-                                .padding(top = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            if (message.time.isNotBlank()) {
-                                Text(
-                                    text = message.time,
-                                    color = ChatMuted,
-                                    fontSize = 10.sp
-                                )
-                            }
+                    }
+                }
 
-                            if (message.isMine) {
-                                MessageStatusIndicator(message.status)
-                            }
+                // التاريخ والساعة وعلامة التسليم خارج الفقاعة (تحتها)، كما في
+                // تطبيقات المراسلة المعروفة.
+                if (message.time.isNotBlank() || message.isMine) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (message.isMine) {
+                            MessageStatusIndicator(message.status)
+                        }
+
+                        if (message.time.isNotBlank()) {
+                            Text(
+                                text = message.time,
+                                color = ChatMuted,
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }
