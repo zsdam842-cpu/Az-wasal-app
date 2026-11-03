@@ -306,6 +306,12 @@ private fun WasalHomeScreen(
         onDispose { callManager.release() }
     }
 
+    // قناة إشارات المكالمات تبقى مفتوحة طوال عمل التطبيق حتى تصل
+    // المكالمات الواردة؛ فتحها عند بدء المكالمة فقط كان يعني عدم وصولها.
+    LaunchedEffect(authDataStore) {
+        callManager.ensureSignaling()
+    }
+
     // اسم المستخدم ورمزه يُرسلان مع المكالمة ليظهر السجل بأسماء صحيحة.
     LaunchedEffect(displayName, wasalCode) {
         callManager.updateLocalIdentity(displayName, wasalCode)

@@ -87,6 +87,26 @@ class CallManager(
     private var localName = "مستخدم وصال"
     private var localCode = ""
 
+    /**
+     * يفتح قناة الإشارات ويُبقيها مفتوحة.
+     *
+     * بدون هذا الاتصال الدائم لا تصل المكالمات الواردة أبدًا، لأن الأحداث
+     * تُبثّ على user:<id> ولا يعرف التطبيق بها إن لم يكن متصلًا مسبقًا.
+     */
+    fun ensureSignaling() {
+        if (signalingConnected) return
+
+        scope.launch {
+            if (signalingConnected) return@launch
+
+            val token = authDataStore.accessToken.first().orEmpty()
+
+            if (token.isBlank()) return@launch
+
+            signaling.connect(token)
+        }
+    }
+
     fun updateLocalIdentity(displayName: String, wasalCode: String) {
         if (displayName.isNotBlank()) localName = displayName
         if (wasalCode.isNotBlank()) localCode = wasalCode
@@ -167,6 +187,8 @@ class CallManager(
             message = "جارٍ الاتصال..."
         )
 
+        stopRinging()
+
         pendingVideo = current.kind == CallKind.VIDEO
 
         scope.launch {
@@ -224,6 +246,7 @@ class CallManager(
     }
 
     fun release() {
+        stopRinging()
         engine.close()
         signaling.disconnect()
         signalingConnected = false
@@ -244,6 +267,12 @@ class CallManager(
 
     override fun onDisconnected(reason: String) {
         signalingConnected = false
+
+        // إعادة اتصال تلقائية حتى لا تضيع المكالمات الواردة بعد انقطاع الشبكة.
+        scope.launch {
+            delay(4000)
+            ensureSignaling()
+        }
     }
 
     override fun onStarted(payload: JSONObject) {
@@ -278,6 +307,8 @@ class CallManager(
             kind = CallKind.from(payload.optString("type", "audio")),
             message = "مكالمة واردة"
         )
+
+        startRinging()
     }
 
     override fun onAccepted(payload: JSONObject) {
@@ -553,12 +584,36 @@ class CallManager(
 
         if (current.phase == CallPhase.ACTIVE) return
 
+        stopRinging()
+
         _state.value = current.copy(
             phase = CallPhase.ACTIVE,
             connected = true,
             startedAtMillis = System.currentTimeMillis(),
             message = null
         )
+    }
+
+    private var ringtone: android.media.Ringtone? = null
+
+    private fun startRinging() {
+        stopRinging()
+
+        runCatching {
+            val uri = android.media.RingtoneManager.getDefaultUri(
+                android.media.RingtoneManager.TYPE_RINGTONE
+            )
+
+            ringtone = android.media.RingtoneManager.getRingtone(context, uri)?.also {
+                it.isLooping = true
+                it.play()
+            }
+        }
+    }
+
+    private fun stopRinging() {
+        runCatching { ringtone?.stop() }
+        ringtone = null
     }
 
     private fun showTransientFailure(message: String) {
@@ -573,6 +628,7 @@ class CallManager(
     }
 
     private fun fail(message: String) {
+        stopRinging()
         engine.close()
 
         _state.value = _state.value.copy(
@@ -590,6 +646,7 @@ class CallManager(
     }
 
     private fun finishWith(message: String) {
+        stopRinging()
         engine.close()
 
         val current = _state.value
@@ -607,11 +664,13 @@ class CallManager(
     }
 
     private fun reset() {
+        stopRinging()
         engine.close()
-        signaling.disconnect()
-        signalingConnected = false
         pendingVideo = false
         _state.value = CallUiState()
+
+        // نُبقي قناة الإشارات مفتوحة لوصول المكالمات القادمة.
+        ensureSignaling()
     }
 
     private companion object {
