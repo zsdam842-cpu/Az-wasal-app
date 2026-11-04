@@ -93,6 +93,7 @@ import com.wasal.app.ui.screens.CallsScreen
 import com.wasal.app.ui.screens.ChatsScreen
 import com.wasal.app.ui.screens.ContactsScreen
 import com.wasal.app.ui.screens.ConversationScreen
+import com.wasal.app.ui.screens.PrivacySecurityScreen
 import com.wasal.app.ui.screens.SettingsScreen
 import com.wasal.app.ui.screens.StatusesScreen
 import com.wasal.app.ui.theme.WasalTheme
@@ -150,6 +151,7 @@ private fun WasalHomeScreen(
     // rememberSaveable: لا يرجع المستخدم إلى تبويب المحادثات بعد فتح معرض
     // الصور أو الكاميرا (كانت الحالة تُفقد عند إعادة إنشاء الشاشة).
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var showPrivacy by rememberSaveable { mutableStateOf(false) }
 
     var openAddFormSignal by remember { mutableIntStateOf(0) }
 
@@ -294,6 +296,45 @@ private fun WasalHomeScreen(
 
     val scope = rememberCoroutineScope()
 
+    // مسح الجلسة من هذا الجهاز فقط (يُستدعى من شاشة الخصوصية والحماية).
+    val wipeSession: () -> Unit = {
+                            scope.launch {
+                                try {
+                                    val refreshToken = authDataStore
+                                        .refreshToken
+                                        .first()
+                                        .orEmpty()
+
+                                    if (refreshToken.isNotBlank()) {
+                                        withContext(Dispatchers.IO) {
+                                            runCatching {
+                                                CoreApiClient.execute(
+                                                    CoreApiClient.post(
+                                                        "/api/auth/logout",
+                                                        JSONObject()
+                                                            .put("refreshToken", refreshToken)
+                                                            .toString(),
+                                                        authDataStore.accessToken
+                                                            .first()
+                                                            .orEmpty()
+                                                            .ifBlank { null }
+                                                    )
+                                                ).close()
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    SocketService.disconnect()
+                                    authDataStore.clear()
+                                    selectedConversation = null
+                                    conversations = emptyList()
+                                    contacts = emptyList()
+                                    errorMessage =
+                                        "تم مسح الجلسة. سيُنشأ حساب جديد عند إعادة تشغيل التطبيق."
+                                }
+                            }
+                        }
+
     val mediaRepository = remember(context, authDataStore) {
         MediaRepository(context, authDataStore)
     }
@@ -430,6 +471,19 @@ private fun WasalHomeScreen(
         }
     }
 
+    // شاشة الخصوصية والحماية تغطي التطبيق (بعيدًا عن قائمة الإعدادات المباشرة).
+    if (showPrivacy) {
+        PrivacySecurityScreen(
+            wasalCode = wasalCode,
+            isBusy = isLoading || isSavingDisplayName,
+            onBack = { showPrivacy = false },
+            onWipeSession = {
+                showPrivacy = false
+                wipeSession()
+            }
+        )
+    }
+
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -552,8 +606,12 @@ private fun WasalHomeScreen(
                     "لا يوجد اتصال بالإنترنت ولا توجد محادثات محفوظة بعد."
             }
         } catch (e: Exception) {
-            errorMessage = e.message
-                ?: "تعذر تحميل بيانات وصال."
+            // بلا إنترنت: نُبقي المحادثات المحفوظة معروضة بدل شاشة خطأ فارغة.
+            errorMessage = if (conversations.isEmpty()) {
+                e.message ?: "تعذر تحميل بيانات وصال."
+            } else {
+                "لا يوجد اتصال بالإنترنت — يتم عرض المحادثات المحفوظة."
+            }
         } finally {
             isLoading = false
         }
@@ -947,43 +1005,8 @@ private fun WasalHomeScreen(
                                 }
                             }
                         },
-                        onLogout = {
-                            scope.launch {
-                                try {
-                                    val refreshToken = authDataStore
-                                        .refreshToken
-                                        .first()
-                                        .orEmpty()
-
-                                    if (refreshToken.isNotBlank()) {
-                                        withContext(Dispatchers.IO) {
-                                            runCatching {
-                                                CoreApiClient.execute(
-                                                    CoreApiClient.post(
-                                                        "/api/auth/logout",
-                                                        JSONObject()
-                                                            .put("refreshToken", refreshToken)
-                                                            .toString(),
-                                                        authDataStore.accessToken
-                                                            .first()
-                                                            .orEmpty()
-                                                            .ifBlank { null }
-                                                    )
-                                                ).close()
-                                            }
-                                        }
-                                    }
-                                } finally {
-                                    SocketService.disconnect()
-                                    authDataStore.clear()
-                                    selectedConversation = null
-                                    conversations = emptyList()
-                                    contacts = emptyList()
-                                    errorMessage =
-                                        "تم مسح الجلسة. سيُنشأ حساب جديد عند إعادة تشغيل التطبيق."
-                                }
-                            }
-                        },
+                        onLogout = wipeSession,
+                        onOpenPrivacy = { showPrivacy = true },
                         onSaveDisplayName = { newName ->
                             scope.launch {
                                 if (isSavingDisplayName) {

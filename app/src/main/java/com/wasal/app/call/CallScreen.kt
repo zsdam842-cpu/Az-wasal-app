@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -155,11 +156,6 @@ fun CallScreen(
 
             Spacer(Modifier.weight(1f))
 
-            if (state.kind == CallKind.VIDEO && showVideo) {
-                LocalPreview(manager = manager, visible = state.cameraEnabled)
-                Spacer(Modifier.height(18.dp))
-            }
-
             when (state.phase) {
                 CallPhase.INCOMING -> IncomingControls(
                     onAccept = { manager.acceptIncoming() },
@@ -193,6 +189,17 @@ fun CallScreen(
         }
     }
 
+    // صورة الكاميرا الخاصة بي: معاينة صغيرة أسفل الشاشة فوق شاشة الطرف الآخر.
+    if (state.kind == CallKind.VIDEO && showVideo) {
+        LocalPreview(
+            manager = manager,
+            visible = state.cameraEnabled,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 150.dp)
+        )
+    }
+
     // إغلاق الشاشة تلقائيًا بعد انتهاء المكالمة.
     LaunchedEffect(state.phase) {
         if (state.phase == CallPhase.IDLE) {
@@ -224,15 +231,17 @@ private fun RemoteVideo(
 @Composable
 private fun LocalPreview(
     manager: CallManager,
-    visible: Boolean
+    visible: Boolean,
+    modifier: Modifier = Modifier
 ) {
     if (!visible) return
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .width(120.dp)
             .height(170.dp)
-            .background(CallPanel, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(CallPanel)
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
