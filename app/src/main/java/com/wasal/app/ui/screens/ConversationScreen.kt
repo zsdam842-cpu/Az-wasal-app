@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -158,6 +159,7 @@ fun ConversationScreen(
     currentUserCode: String = "",
     onVoiceRecordStart: () -> Unit = {},
     onVoiceRecordStop: () -> Unit = {},
+    onVoiceRecordCancel: () -> Unit = {},
     isRecordingVoice: Boolean = false,
     statusMessage: String? = null,
     mediaAccessToken: String = "",
@@ -467,10 +469,27 @@ fun ConversationScreen(
                     Spacer(Modifier.width(6.dp))
 
                     Text(
-                        text = "جارٍ تسجيل رسالة صوتية... اضغط زر الإيقاف للإرسال",
+                        text = "جارٍ تسجيل رسالة صوتية...",
                         color = ChatMuted,
                         fontSize = 12.sp
                     )
+
+                    Spacer(Modifier.width(10.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(FailedStatusColor.copy(alpha = 0.16f))
+                            .clickable { onVoiceRecordCancel() }
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = "إلغاء التسجيل",
+                            color = FailedStatusColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
@@ -934,7 +953,8 @@ private fun VoicePlayer(
     url: String,
     isMine: Boolean,
     senderName: String = "",
-    senderAvatarUrl: String? = null
+    senderAvatarUrl: String? = null,
+    accessToken: String = ""
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -946,6 +966,7 @@ private fun VoicePlayer(
     var player by remember(url) {
         mutableStateOf<android.media.MediaPlayer?>(null)
     }
+    var errorText by remember(url) { mutableStateOf<String?>(null) }
 
     fun releasePlayer() {
         runCatching { player?.release() }
@@ -963,12 +984,59 @@ private fun VoicePlayer(
         while (isPlaying) {
             val current = player
 
-            if (current != null && current.duration > 0) {
-                progress = (current.currentPosition.toFloat() / current.duration)
-                    .coerceIn(0f, 1f)
+            if (current != null) {
+                val total = current.duration
+
+                if (total > 0) {
+                    progress = (current.currentPosition.toFloat() / total)
+                        .coerceIn(0f, 1f)
+                }
             }
 
             kotlinx.coroutines.delay(200)
+        }
+    }
+
+    // نسخة دائمة على الجهاز: تسمح بالاستماع دون إنترنت بعد أول تشغيل.
+    fun cachedFile(): java.io.File {
+        val dir = java.io.File(context.filesDir, "voice_cache")
+
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+
+        return java.io.File(
+            dir,
+            "voice_" + kotlin.math.abs(url.hashCode()) + ".m4a"
+        )
+    }
+
+    fun startPlayback(file: java.io.File) {
+        val newPlayer = android.media.MediaPlayer()
+
+        runCatching {
+            newPlayer.setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(
+                        android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+                    )
+                    .build()
+            )
+            newPlayer.setDataSource(file.absolutePath)
+            newPlayer.setOnCompletionListener { releasePlayer() }
+            newPlayer.prepare()
+
+            durationSeconds = (newPlayer.duration / 1000).coerceAtLeast(1)
+
+            newPlayer.start()
+
+            player = newPlayer
+            isPlaying = true
+        }.onFailure {
+            runCatching { newPlayer.release() }
+            isPlaying = false
+            errorText = "تعذر تشغيل الرسالة الصوتية."
         }
     }
 
@@ -985,14 +1053,37 @@ private fun VoicePlayer(
                 }
 
                 releasePlayer()
+                errorText = null
                 isPreparing = true
 
                 scope.launch {
-                    // تنزيل الملف ثم تشغيله محليًا: البث المباشر كان ينتج
-                    // صوتًا مشوّشًا وصفيرًا في بعض الأجهزة.
+                    val cached = cachedFile()
+
+                    if (cached.exists() && cached.length() > 0L) {
+                        startPlayback(cached)
+                        isPreparing = false
+                        return@launch
+                    }
+
+                    // تنزيل الملف مرة واحدة ثم حفظه محليًا:
+                    // يمنع الصفير ويسمح بالاستماع عند انقطاع الإنترنت.
                     val file = runCatching {
                         withContext(Dispatchers.IO) {
-                            val request = okhttp3.Request.Builder().url(url).build()
+                            if (url.isBlank()) {
+                                throw java.io.IOException("رابط الرسالة الصوتية فارغ.")
+                            }
+
+                            val request = okhttp3.Request.Builder()
+                                .url(url)
+                                .apply {
+                                    if (accessToken.isNotBlank()) {
+                                        header(
+                                            "Authorization",
+                                            "Bearer $accessToken"
+                                        )
+                                    }
+                                }
+                                .build()
 
                             val response = com.wasal.app.data.network
                                 .CoreApiClient.client
@@ -1007,52 +1098,30 @@ private fun VoicePlayer(
                             val body = response.body
                                 ?: throw java.io.IOException("الملف فارغ.")
 
-                            val target = java.io.File(
-                                context.cacheDir,
-                                "voice_" + url.hashCode() + ".m4a"
-                            )
-
                             body.byteStream().use { input ->
-                                target.outputStream().use { output ->
+                                cached.outputStream().use { output ->
                                     input.copyTo(output)
                                 }
                             }
 
                             response.close()
-                            target
+                            cached
                         }
                     }.getOrNull()
 
                     if (file == null || !file.exists() || file.length() == 0L) {
                         isPreparing = false
+
+                        if (isConnectedToNetwork(context)) {
+                            errorText = "تعذر تنزيل الرسالة الصوتية."
+                        } else {
+                            errorText = "لا يوجد اتصال بالإنترنت."
+                        }
+
                         return@launch
                     }
 
-                    val newPlayer = android.media.MediaPlayer()
-
-                    runCatching {
-                        newPlayer.setAudioAttributes(
-                            android.media.AudioAttributes.Builder()
-                                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                                .setContentType(
-                                    android.media.AudioAttributes.CONTENT_TYPE_SPEECH
-                                )
-                                .build()
-                        )
-                        newPlayer.setDataSource(file.absolutePath)
-                        newPlayer.setOnCompletionListener { releasePlayer() }
-                        newPlayer.prepare()
-
-                        durationSeconds = (newPlayer.duration / 1000).coerceAtLeast(1)
-
-                        newPlayer.start()
-
-                        player = newPlayer
-                        isPlaying = true
-                    }.onFailure {
-                        runCatching { newPlayer.release() }
-                        isPlaying = false
-                    }
+                    startPlayback(file)
 
                     isPreparing = false
                 }
@@ -1066,43 +1135,67 @@ private fun VoicePlayer(
             )
         }
 
-        // موجات صوتية ثابتة تعطي شكل الرسالة الصوتية المعروف.
-        Row(
+        // موجات صوتية قابلة للنقر: النقر على موضع يقفز إلى نفس اللحظة.
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .height(22.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                .height(26.dp)
+                .pointerInput(url, durationSeconds) {
+                    detectTapGestures { offset ->
+                        val total = player?.duration ?: 0
+
+                        if (total <= 0 || size.width <= 0) {
+                            return@detectTapGestures
+                        }
+
+                        val fraction = (offset.x / size.width.toFloat())
+                            .coerceIn(0f, 1f)
+
+                        runCatching {
+                            player?.seekTo((fraction * total).toInt())
+                        }
+
+                        progress = fraction
+                    }
+                },
+            contentAlignment = Alignment.Center
         ) {
-            val heights = listOf(
-                8, 14, 20, 11, 17, 9, 22, 13, 18, 10,
-                16, 21, 12, 8, 19, 14, 9, 17, 11, 20
-            )
-
-            heights.forEachIndexed { index, h ->
-                val played = index.toFloat() / heights.size <= progress
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height((h * (if (played) 1f else 0.75f)).dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(
-                            if (played) ChatAccent else ChatMuted.copy(alpha = 0.55f)
-                        )
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                val heights = listOf(
+                    8, 14, 20, 11, 17, 9, 22, 13, 18, 10,
+                    16, 21, 12, 8, 19, 14, 9, 17, 11, 20
                 )
+
+                heights.forEachIndexed { index, h ->
+                    val played = index.toFloat() / heights.size <= progress
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height((h * (if (played) 1f else 0.75f)).dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(
+                                if (played) ChatAccent else ChatMuted.copy(alpha = 0.55f)
+                            )
+                    )
+                }
             }
         }
 
         Spacer(Modifier.width(8.dp))
 
         Text(
-            text = if (durationSeconds > 0) {
-                formatVoiceDuration(durationSeconds)
-            } else {
-                "0:00"
+            text = when {
+                isPreparing -> "..."
+                errorText != null -> "تعذر"
+                durationSeconds > 0 -> formatVoiceDuration(durationSeconds)
+                else -> "0:00"
             },
-            color = ChatMuted,
+            color = if (errorText != null) FailedStatusColor else ChatMuted,
             fontSize = 11.sp
         )
 
@@ -1137,6 +1230,22 @@ private fun VoicePlayer(
             }
         }
     }
+}
+
+private fun isConnectedToNetwork(context: android.content.Context): Boolean {
+    return runCatching {
+        val manager = context.getSystemService(
+            android.content.Context.CONNECTIVITY_SERVICE
+        ) as? android.net.ConnectivityManager
+
+        val network = manager?.activeNetwork ?: return@runCatching false
+        val capabilities = manager.getNetworkCapabilities(network)
+            ?: return@runCatching false
+
+        capabilities.hasCapability(
+            android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET
+        )
+    }.getOrDefault(false)
 }
 
 private fun formatVoiceDuration(totalSeconds: Int): String {
@@ -1405,7 +1514,8 @@ private fun MessageBubble(
                                     url = message.localUri ?: message.content,
                                     isMine = message.isMine,
                                     senderName = otherName,
-                                    senderAvatarUrl = otherAvatarUrl
+                                    senderAvatarUrl = otherAvatarUrl,
+                                    accessToken = mediaAccessToken
                                 )
                             }
 

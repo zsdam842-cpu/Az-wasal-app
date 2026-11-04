@@ -1303,6 +1303,14 @@ private fun ConversationFlow(
         }
     }
 
+    fun cancelVoiceRecording() {
+        if (!isRecordingVoice) return
+
+        isRecordingVoice = false
+        voiceRecorder.cancel()
+        statusMessage = "أُلغي التسجيل ولم تُرسل أي رسالة."
+    }
+
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -1633,6 +1641,9 @@ private fun ConversationFlow(
         },
         onVoiceRecordStop = {
             stopVoiceRecordingAndSend()
+        },
+        onVoiceRecordCancel = {
+            cancelVoiceRecording()
         },
         isRecordingVoice = isRecordingVoice,
         onSendMessage = { text, replyToId ->
