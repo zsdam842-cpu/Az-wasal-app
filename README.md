@@ -4,10 +4,10 @@
 
 | النسخة | الملف | الرابط |
 | --- | --- | --- |
-| release (للاستخدام اليومي) | wasal-2.3-release.apk | [تنزيل](https://github.com/zsdam842-cpu/Az-wasal-app/releases/download/v2.3/wasal-2.3-release.apk) |
-| debug (للتجربة والتشخيص) | wasal-2.3-debug.apk | [تنزيل](https://github.com/zsdam842-cpu/Az-wasal-app/releases/download/v2.3/wasal-2.3-debug.apk) |
+| release (للاستخدام اليومي) | wasal-2.4-release.apk | [تنزيل](https://github.com/zsdam842-cpu/Az-wasal-app/releases/download/v2.4/wasal-2.4-release.apk) |
+| debug (للتجربة والتشخيص) | wasal-2.4-debug.apk | [تنزيل](https://github.com/zsdam842-cpu/Az-wasal-app/releases/download/v2.4/wasal-2.4-debug.apk) |
 
-صفحة الإصدار الكاملة: https://github.com/zsdam842-cpu/Az-wasal-app/releases/tag/v2.3
+صفحة الإصدار الكاملة: https://github.com/zsdam842-cpu/Az-wasal-app/releases/tag/v2.4
 
 النسختان موقّعتان بنفس المفتاح، فتُثبَّت أي منهما فوق الأخرى دون حذف التطبيق.
 كل بناء جديد على الفرع main ينتج النسختين تلقائياً في تبويب Actions (مجلد `out` داخل الـartifact).
