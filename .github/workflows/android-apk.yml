@@ -77,12 +77,21 @@ jobs:
           ls -l app/build/outputs/apk/debug/
           test -n "$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
 
-      - name: Upload APKs
+      - name: Upload debug APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wasal-apks
-          path: out/*.apk
+          name: wasal-debug-apk
+          path: out/*-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasal-release-apk
+          path: out/*-release.apk
           if-no-files-found: error
           retention-days: 30
 
