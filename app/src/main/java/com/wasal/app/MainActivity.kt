@@ -660,7 +660,10 @@ private fun WasalHomeScreen(
             },
             onStartCall = { kind ->
                 requestCall(currentConversation, kind)
-            }
+            },
+            forwardTargets = conversations
+                .filter { it.id != currentConversation.id }
+                .map { it.id to it.title }
         )
         return
     }
@@ -1092,7 +1095,8 @@ private fun ConversationFlow(
     otherBio: String = "",
     onBack: () -> Unit,
     onArchive: () -> Unit = {},
-    onStartCall: (CallKind) -> Unit = {}
+    onStartCall: (CallKind) -> Unit = {},
+    forwardTargets: List<Pair<String, String>> = emptyList()
 ) {
     val messageRepository = remember(authDataStore) {
         MessageRepository(authDataStore)
@@ -1612,9 +1616,7 @@ private fun ConversationFlow(
         },
         onStartVoiceCall = { onStartCall(CallKind.AUDIO) },
         onStartVideoCall = { onStartCall(CallKind.VIDEO) },
-        forwardTargets = conversations
-            .filter { it.id != conversation.id }
-            .map { it.id to it.title },
+        forwardTargets = forwardTargets,
         onForwardMessage = { message, targetConversationId ->
             scope.launch {
                 try {

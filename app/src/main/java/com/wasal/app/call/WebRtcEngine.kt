@@ -254,7 +254,7 @@ class WebRtcEngine(
                                 val params = sender.parameters
                                 params.encodings.forEach { encoding ->
                                     encoding.maxBitrateBps = 900_000
-                                    encoding.maxFramerate = 30.0
+                                    encoding.maxFramerate = 30
                                 }
                                 sender.parameters = params
                             }

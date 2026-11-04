@@ -510,7 +510,9 @@ fun ConversationScreen(
                                 selected = actionTarget?.id == message.id,
                                 onLongPress = { actionTarget = it },
                                 onSwipeReply = { onReply(it) },
-                                onRetryMedia = onRetryMedia
+                                onRetryMedia = onRetryMedia,
+                                onOpenImage = { viewerImageUrl = it },
+                                onOpenVideo = { viewerVideoUrl = it }
                             )
                         }
 
@@ -1528,7 +1530,9 @@ private fun MessageBubble(
     selected: Boolean,
     onLongPress: (Message) -> Unit,
     onSwipeReply: (Message) -> Unit,
-    onRetryMedia: (Message) -> Unit = {}
+    onRetryMedia: (Message) -> Unit = {},
+    onOpenImage: (String) -> Unit = {},
+    onOpenVideo: (String) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val threshold = with(density) { 64.dp.toPx() }
@@ -1653,8 +1657,9 @@ private fun MessageBubble(
                                         message.status == MessageStatus.FAILED,
                                     onRetry = { onRetryMedia(message) },
                                     onOpen = {
-                                        viewerImageUrl =
+                                        onOpenImage(
                                             message.localUri ?: message.content
+                                        )
                                     }
                                 )
                             }
@@ -1673,8 +1678,9 @@ private fun MessageBubble(
                                         message.status == MessageStatus.FAILED,
                                     onRetry = { onRetryMedia(message) },
                                     onOpen = {
-                                        viewerVideoUrl =
+                                        onOpenVideo(
                                             message.localUri ?: message.content
+                                        )
                                     }
                                 )
                             }
