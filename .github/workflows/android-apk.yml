@@ -46,25 +46,45 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Ensure release signing keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v               -keystore "$HOME/.android/debug.keystore"               -storepass android -alias androiddebugkey -keypass android               -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Gradle configuration check
         run: ./gradlew :app:tasks --all -q > /dev/null && echo "configuration ok"
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
 
+      - name: Build release APK
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
+
+      - name: Rename APKs with version
+        run: |
+          mkdir -p out
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts | head -1)
+          DEBUG_APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          RELEASE_APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          cp "$DEBUG_APK" "out/wasal-${VERSION}-debug.apk"
+          cp "$RELEASE_APK" "out/wasal-${VERSION}-release.apk"
+          ls -l out
+
       - name: Verify APK output
         run: |
           ls -l app/build/outputs/apk/debug/
           test -n "$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
 
-      - name: Upload APK
+      - name: Upload APKs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wasal-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: wasal-apks
+          path: out/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
       - name: Upload build reports on failure
         if: failure()

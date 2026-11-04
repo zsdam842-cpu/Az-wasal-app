@@ -81,6 +81,12 @@ fun CallScreen(
         state.phase != CallPhase.ENDED &&
         state.phase != CallPhase.FAILED
 
+    // هل تُعرض شاشة الطرف الآخر الآن؟ عندها تختفي البطاقة الكبيرة
+    // من منتصف الشاشة حتى لا تحجب الفيديو.
+    val remoteVisible = state.kind == CallKind.VIDEO &&
+        showVideo &&
+        state.connected
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -101,34 +107,36 @@ fun CallScreen(
         ) {
             Spacer(Modifier.height(28.dp))
 
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .background(CallPanel, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (state.kind == CallKind.VIDEO) {
-                        Icons.Default.Videocam
-                    } else {
-                        Icons.Default.Call
-                    },
-                    contentDescription = null,
-                    tint = CallAccent,
-                    modifier = Modifier.size(44.dp)
-                )
-            }
+            if (!remoteVisible) {
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .background(CallPanel, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (state.kind == CallKind.VIDEO) {
+                            Icons.Default.Videocam
+                        } else {
+                            Icons.Default.Call
+                        },
+                        contentDescription = null,
+                        tint = CallAccent,
+                        modifier = Modifier.size(44.dp)
+                    )
+                }
 
-            Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
+            }
 
             Text(
                 text = state.peerName.ifBlank { "مستخدم وصال" },
                 color = CallText,
-                fontSize = 24.sp,
+                fontSize = if (remoteVisible) 15.sp else 24.sp,
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(if (remoteVisible) 2.dp else 6.dp))
 
             Text(
                 text = when (state.phase) {
@@ -141,7 +149,7 @@ fun CallScreen(
                     CallPhase.IDLE -> ""
                 },
                 color = CallMuted,
-                fontSize = 15.sp
+                fontSize = if (remoteVisible) 12.sp else 15.sp
             )
 
             state.message

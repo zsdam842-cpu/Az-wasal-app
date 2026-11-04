@@ -12,8 +12,8 @@ android {
         applicationId = "com.wasal.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.9"
+        versionCode = 11
+        versionName = "2.2"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
@@ -21,6 +21,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -48,6 +49,11 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-video:2.7.0")
 
+    // تشغيل الفيديو داخل المحادثة وبشاشة كاملة
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-datasource:1.5.1")
+
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.socket:socket.io-client:2.1.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
@@ -60,4 +66,36 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+}
+
+android {
+    signingConfigs {
+        create("release") {
+            // نفس مفتاح التوقيع الافتراضي الذي يوقّع نسخة debug، حتى تُثبَّت
+            // نسختا debug و release فوق بعضهما على الهاتف دون حذف التطبيق.
+            val defaultStore = File(
+                System.getProperty("user.home") ?: ".",
+                ".android/debug.keystore"
+            )
+
+            val storeFileEnv = System.getenv("WASAL_KEYSTORE")
+            storeFile = if (!storeFileEnv.isNullOrBlank()) {
+                File(storeFileEnv)
+            } else {
+                defaultStore
+            }
+
+            storePassword = System.getenv("WASAL_KEYSTORE_PASSWORD") ?: "android"
+            keyAlias = System.getenv("WASAL_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("WASAL_KEY_PASSWORD") ?: "android"
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
 }

@@ -108,6 +108,11 @@ class WebRtcEngine(
     fun attachLocalRenderer(view: SurfaceViewRenderer) {
         localRenderer = view
 
+        // المعاينة الصغيرة يجب أن تطفو فوق شاشة الطرف الآخر:
+        // بدونها يعتمد ترتيب SurfaceView على ترتيب الإضافة فقط،
+        // فتختفي صورتي خلف الفيديو البعيد على أجهزة كثيرة.
+        runCatching { view.setZOrderMediaOverlay(true) }
+
         view.init(eglBase.eglBaseContext, null)
         view.setEnableHardwareScaler(true)
         view.setMirror(true)
@@ -239,6 +244,21 @@ class WebRtcEngine(
                     track.setEnabled(true)
 
                     connection.addTrack(track, listOf("wasal-stream"))
+
+                    // سقف للبِت ريت يمنع التقطيع والاهتزاز على الشبكات الضعيفة،
+                    // مع إبقاء الترميز التكيفي يعمل تحت هذا السقف.
+                    runCatching {
+                        connection.senders
+                            .firstOrNull { it.track()?.kind() == "video" }
+                            ?.let { sender ->
+                                val params = sender.parameters
+                                params.encodings.forEach { encoding ->
+                                    encoding.maxBitrateBps = 900_000
+                                    encoding.maxFramerate = 30.0
+                                }
+                                sender.parameters = params
+                            }
+                    }
 
                     localRenderer?.let { track.addSink(it) }
                 }

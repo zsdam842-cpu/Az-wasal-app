@@ -501,7 +501,7 @@ fun SettingsScreen(
                 Spacer(Modifier.height(6.dp))
 
                 Text(
-                    text = "الإصدار 1.5",
+                    text = "الإصدار ${com.wasal.app.BuildConfig.VERSION_NAME}",
                     color = SetMuted,
                     fontSize = 12.sp
                 )

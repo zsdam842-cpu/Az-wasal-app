@@ -225,6 +225,79 @@ class MessageRepository(
         return result
     }
 
+    /**
+     * إعادة توجيه رسالة موجودة إلى محادثة أخرى بنفس نوعها ومحتواها.
+     */
+    suspend fun forwardMessage(
+        targetConversationId: String,
+        sourceType: String,
+        sourceContent: String,
+        accessToken: String,
+        currentUserId: String
+    ): Result<Message> {
+        if (targetConversationId.isBlank() || accessToken.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException(
+                    "معرّف المحادثة أو رمز الدخول غير موجود."
+                )
+            )
+        }
+
+        if (sourceContent.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException("لا يوجد محتوى لإعادة توجيهه.")
+            )
+        }
+
+        val safeType = sourceType
+            .lowercase()
+            .takeIf { it in setOf("text", "image", "video", "voice", "file") }
+            ?: "text"
+
+        val payload = JSONObject()
+            .put("conversationId", targetConversationId)
+            .put("type", safeType)
+            .put("content", sourceContent)
+            .toString()
+
+        val responseResult = apiClient.execute { token ->
+            CoreApiClient.post(
+                ServerConfig.MESSAGES_ENDPOINT,
+                payload,
+                token
+            )
+        }
+
+        val response = responseResult.getOrElse {
+            return Result.failure(it)
+        }
+
+        if (!response.isSuccessful) {
+            val error = runCatching {
+                JSONObject(response.body).optString("error")
+            }.getOrDefault("")
+
+            return Result.failure(
+                IOException(
+                    when (response.code) {
+                        401 -> "انتهت جلسة الدخول."
+                        403 -> "لا يمكنك الإرسال إلى هذه المحادثة."
+                        else -> error.ifBlank {
+                            "تعذر إعادة التوجيه. رمز الاستجابة: ${response.code}"
+                        }
+                    }
+                )
+            )
+        }
+
+        return parseSentMessage(
+            responseBody = response.body,
+            fallbackContent = sourceContent,
+            fallbackType = safeType,
+            currentUserId = currentUserId
+        )
+    }
+
     suspend fun sendMediaMessage(
         conversationId: String,
         media: UploadedMedia,

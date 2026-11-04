@@ -428,17 +428,12 @@ fun StatusesScreen(
                                 Text("اكتب حالتك...", color = StatusMuted)
                             }
                         )
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(
-                                onClick = { statusMediaPicker.launch("image/*") },
-                                enabled = !isPublishing
-                            ) { Text("صورة", color = StatusAccent) }
-                            TextButton(
-                                onClick = { statusMediaPicker.launch("video/*") },
-                                enabled = !isPublishing
-                            ) { Text("فيديو", color = StatusAccent) }
-                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "الحالات نصية فقط.",
+                            color = StatusMuted,
+                            fontSize = 12.sp
+                        )
                     }
                 },
                 confirmButton = {

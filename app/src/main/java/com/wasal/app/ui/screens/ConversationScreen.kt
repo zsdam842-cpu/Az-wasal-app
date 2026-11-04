@@ -5,7 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +54,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Forward
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
@@ -97,6 +103,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -114,6 +121,10 @@ import coil.compose.SubcomposeAsyncImage
 import com.wasal.app.data.model.Message
 import com.wasal.app.data.model.MessageStatus
 import com.wasal.app.data.model.isLocalPending
+import com.wasal.app.ui.components.FullScreenImageDialog
+import com.wasal.app.ui.components.FullScreenVideoDialog
+import com.wasal.app.ui.components.InlineVideoPlayer
+import com.wasal.app.ui.components.MediaSaver
 import com.wasal.app.ui.components.WasalAvatar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -164,7 +175,9 @@ fun ConversationScreen(
     statusMessage: String? = null,
     mediaAccessToken: String = "",
     onStartVoiceCall: () -> Unit = {},
-    onStartVideoCall: () -> Unit = {}
+    onStartVideoCall: () -> Unit = {},
+    forwardTargets: List<Pair<String, String>> = emptyList(),
+    onForwardMessage: (Message, String) -> Unit = { _, _ -> }
 ) {
     var draft by remember { mutableStateOf("") }
     var showConversationMenu by remember { mutableStateOf(false) }
@@ -173,14 +186,73 @@ fun ConversationScreen(
     var editingMessage by remember { mutableStateOf<Message?>(null) }
     var editDraft by remember { mutableStateOf("") }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
+    var viewerImageUrl by remember { mutableStateOf<String?>(null) }
+    var viewerVideoUrl by remember { mutableStateOf<String?>(null) }
+    var forwardTarget by remember { mutableStateOf<Message?>(null) }
     var lastTypingState by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var localHint by remember { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
     val listState = rememberLazyListState()
+    val screenScope = rememberCoroutineScope()
 
     BackHandler {
         onBack()
+    }
+
+    // عارض الصور بالشاشة الكاملة
+    viewerImageUrl?.let { url ->
+        FullScreenImageDialog(
+            url = url,
+            accessToken = mediaAccessToken,
+            onClose = { viewerImageUrl = null }
+        )
+    }
+
+    // عارض الفيديو بالشاشة الكاملة
+    viewerVideoUrl?.let { url ->
+        FullScreenVideoDialog(
+            url = url,
+            accessToken = mediaAccessToken,
+            onClose = { viewerVideoUrl = null }
+        )
+    }
+
+    // اختيار محادثة لإعادة توجيه رسالة إليها
+    forwardTarget?.let { message ->
+        AlertDialog(
+            onDismissRequest = { forwardTarget = null },
+            title = { Text("إعادة توجيه إلى") },
+            text = {
+                Column {
+                    if (forwardTargets.isEmpty()) {
+                        Text(
+                            text = "لا توجد محادثات أخرى.",
+                            color = ChatMuted
+                        )
+                    } else {
+                        forwardTargets.forEach { (conversationId, title) ->
+                            Text(
+                                text = title.ifBlank { "محادثة" },
+                                color = ChatText,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onForwardMessage(message, conversationId)
+                                        forwardTarget = null
+                                    }
+                                    .padding(vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { forwardTarget = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 
     LaunchedEffect(messages.size, isOtherTyping) {
@@ -903,6 +975,48 @@ fun ConversationScreen(
                         actionTarget = null
                     }
 
+                    if (target.type.lowercase() in
+                        setOf("image", "video", "audio", "voice", "file")
+                    ) {
+                        SheetAction(
+                            label = "حفظ في الجهاز",
+                            icon = Icons.Default.Download
+                        ) {
+                            val mediaUrl = target.localUri ?: target.content
+                            val extension = when (target.type.lowercase()) {
+                                "image" -> "jpg"
+                                "video" -> "mp4"
+                                "audio", "voice" -> "m4a"
+                                else -> "bin"
+                            }
+                            val fileName =
+                                "wasal_${System.currentTimeMillis()}.$extension"
+
+                            actionTarget = null
+
+                            screenScope.launch {
+                                val result = MediaSaver.save(
+                                    context = context,
+                                    url = mediaUrl,
+                                    accessToken = mediaAccessToken,
+                                    desiredName = fileName
+                                )
+
+                                localHint = result.getOrElse {
+                                    "تعذر حفظ الملف."
+                                }
+                            }
+                        }
+                    }
+
+                    SheetAction(
+                        label = "إعادة توجيه",
+                        icon = Icons.Default.Forward
+                    ) {
+                        forwardTarget = target
+                        actionTarget = null
+                    }
+
                     if (target.isMine &&
                         target.type.equals("text", true) &&
                         !target.deletedForEveryone
@@ -962,38 +1076,40 @@ private fun VoicePlayer(
     var isPlaying by remember(url) { mutableStateOf(false) }
     var isPreparing by remember(url) { mutableStateOf(false) }
     var durationSeconds by remember(url) { mutableIntStateOf(0) }
-    var progress by remember(url) { mutableFloatStateOf(0f) }
+    var positionMs by remember(url) { mutableIntStateOf(0) }
+    var waveWidthPx by remember(url) { mutableFloatStateOf(1f) }
     var player by remember(url) {
         mutableStateOf<android.media.MediaPlayer?>(null)
     }
     var errorText by remember(url) { mutableStateOf<String?>(null) }
 
-    fun releasePlayer() {
+    fun releaseEverything() {
         runCatching { player?.release() }
         player = null
         isPlaying = false
-        progress = 0f
+        positionMs = 0
     }
 
     DisposableEffect(url) {
-        onDispose { releasePlayer() }
+        onDispose { releaseEverything() }
     }
 
-    // تحديث مؤشر التقدم أثناء التشغيل
+    // تحديث موضع التشغيل أثناء الاستماع.
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             val current = player
 
             if (current != null) {
-                val total = current.duration
-
-                if (total > 0) {
-                    progress = (current.currentPosition.toFloat() / total)
-                        .coerceIn(0f, 1f)
+                runCatching {
+                    positionMs = current.currentPosition.coerceAtLeast(0)
+                    val total = current.duration
+                    if (total > 0) {
+                        durationSeconds = (total / 1000).coerceAtLeast(1)
+                    }
                 }
             }
 
-            kotlinx.coroutines.delay(200)
+            kotlinx.coroutines.delay(150)
         }
     }
 
@@ -1005,13 +1121,19 @@ private fun VoicePlayer(
             dir.mkdirs()
         }
 
-        return java.io.File(
-            dir,
-            "voice_" + kotlin.math.abs(url.hashCode()) + ".m4a"
-        )
+        val safeName = url
+            .substringAfterLast('/')
+            .substringBefore('?')
+            .takeIf { it.length in 4..60 }
+            ?: "voice"
+
+        return java.io.File(dir, "${safeName}_${kotlin.math.abs(url.hashCode())}.m4a")
     }
 
-    fun startPlayback(file: java.io.File) {
+    // يبني مشغّلاً من ملف محلي ويقفز إلى الموضع المحفوظ.
+    fun startPlayback(file: java.io.File, startAtMs: Int) {
+        runCatching { player?.release() }
+
         val newPlayer = android.media.MediaPlayer()
 
         runCatching {
@@ -1024,21 +1146,54 @@ private fun VoicePlayer(
                     .build()
             )
             newPlayer.setDataSource(file.absolutePath)
-            newPlayer.setOnCompletionListener { releasePlayer() }
+            // عند الانتهاء: يبقى المشغّل جاهزاً لإعادة التشغيل من البداية.
+            newPlayer.setOnCompletionListener {
+                isPlaying = false
+                positionMs = 0
+                runCatching { it.seekTo(0) }
+            }
             newPlayer.prepare()
 
             durationSeconds = (newPlayer.duration / 1000).coerceAtLeast(1)
+
+            if (startAtMs > 0 && startAtMs < newPlayer.duration) {
+                newPlayer.seekTo(startAtMs)
+            }
 
             newPlayer.start()
 
             player = newPlayer
             isPlaying = true
+            positionMs = startAtMs
         }.onFailure {
             runCatching { newPlayer.release() }
+            player = null
             isPlaying = false
             errorText = "تعذر تشغيل الرسالة الصوتية."
         }
     }
+
+    // القفز إلى نسبة من مدة الرسالة، أثناء التشغيل أو قبله.
+    fun seekToFraction(fraction: Float) {
+        val safe = fraction.coerceIn(0f, 1f)
+        val totalMs = player?.duration?.takeIf { it > 0 }
+            ?: (durationSeconds * 1000)
+
+        if (totalMs <= 0) {
+            return
+        }
+
+        positionMs = (safe * totalMs).toInt()
+
+        runCatching { player?.seekTo(positionMs) }
+    }
+
+    val totalMsForBar = remember(positionMs, durationSeconds) {
+        (player?.duration ?: (durationSeconds * 1000)).coerceAtLeast(1)
+    }
+
+    val progress = (positionMs.toFloat() / totalMsForBar.toFloat())
+        .coerceIn(0f, 1f)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1047,20 +1202,29 @@ private fun VoicePlayer(
         IconButton(
             enabled = url.isNotBlank() && !isPreparing,
             onClick = {
-                if (isPlaying) {
-                    releasePlayer()
+                errorText = null
+
+                val existing = player
+
+                if (existing != null) {
+                    if (isPlaying) {
+                        existing.pause()
+                        isPlaying = false
+                    } else {
+                        existing.start()
+                        isPlaying = true
+                    }
+
                     return@IconButton
                 }
 
-                releasePlayer()
-                errorText = null
                 isPreparing = true
 
                 scope.launch {
                     val cached = cachedFile()
 
                     if (cached.exists() && cached.length() > 0L) {
-                        startPlayback(cached)
+                        startPlayback(cached, positionMs)
                         isPreparing = false
                         return@launch
                     }
@@ -1121,7 +1285,7 @@ private fun VoicePlayer(
                         return@launch
                     }
 
-                    startPlayback(file)
+                    startPlayback(file, positionMs)
 
                     isPreparing = false
                 }
@@ -1135,27 +1299,23 @@ private fun VoicePlayer(
             )
         }
 
-        // موجات صوتية قابلة للنقر: النقر على موضع يقفز إلى نفس اللحظة.
+        // موجات صوتية تفاعلية: النقر يقفز، والسحب يمرر داخل التسجيل.
         Box(
             modifier = Modifier
                 .weight(1f)
                 .height(26.dp)
+                .onSizeChanged {
+                    waveWidthPx = it.width.toFloat().coerceAtLeast(1f)
+                }
                 .pointerInput(url, durationSeconds) {
-                    detectTapGestures { offset ->
-                        val total = player?.duration ?: 0
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        seekToFraction(down.position.x / waveWidthPx)
 
-                        if (total <= 0 || size.width <= 0) {
-                            return@detectTapGestures
+                        drag(down.id) { change ->
+                            seekToFraction(change.position.x / waveWidthPx)
+                            change.consume()
                         }
-
-                        val fraction = (offset.x / size.width.toFloat())
-                            .coerceIn(0f, 1f)
-
-                        runCatching {
-                            player?.seekTo((fraction * total).toInt())
-                        }
-
-                        progress = fraction
                     }
                 },
             contentAlignment = Alignment.Center
@@ -1192,7 +1352,9 @@ private fun VoicePlayer(
             text = when {
                 isPreparing -> "..."
                 errorText != null -> "تعذر"
-                durationSeconds > 0 -> formatVoiceDuration(durationSeconds)
+                durationSeconds > 0 ->
+                    "${formatVoiceDuration(positionMs / 1000)} / " +
+                        formatVoiceDuration(durationSeconds)
                 else -> "0:00"
             },
             color = if (errorText != null) FailedStatusColor else ChatMuted,
@@ -1489,7 +1651,11 @@ private fun MessageBubble(
                                         message.status == MessageStatus.SENDING,
                                     failed = message.localUri != null &&
                                         message.status == MessageStatus.FAILED,
-                                    onRetry = { onRetryMedia(message) }
+                                    onRetry = { onRetryMedia(message) },
+                                    onOpen = {
+                                        viewerImageUrl =
+                                            message.localUri ?: message.content
+                                    }
                                 )
                             }
 
@@ -1505,7 +1671,11 @@ private fun MessageBubble(
                                         message.status == MessageStatus.SENDING,
                                     failed = message.localUri != null &&
                                         message.status == MessageStatus.FAILED,
-                                    onRetry = { onRetryMedia(message) }
+                                    onRetry = { onRetryMedia(message) },
+                                    onOpen = {
+                                        viewerVideoUrl =
+                                            message.localUri ?: message.content
+                                    }
                                 )
                             }
 
@@ -1686,7 +1856,8 @@ private fun MessageImage(
     accessToken: String,
     pending: Boolean = false,
     failed: Boolean = false,
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    onOpen: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -1721,7 +1892,8 @@ private fun MessageImage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 320.dp)
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(enabled = !pending && !failed) { onOpen() },
             loading = {
                 Box(
                     modifier = Modifier
@@ -1758,44 +1930,25 @@ private fun MessageVideo(
     accessToken: String,
     pending: Boolean = false,
     failed: Boolean = false,
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    onOpen: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-
     if (videoUrl.isBlank()) {
         VideoPlaceholder()
         return
-    }
-
-    val videoRequest = remember(videoUrl, accessToken) {
-        ImageRequest.Builder(context)
-            .data(videoUrl)
-            .videoFrameMillis(500)
-            .apply {
-                if (accessToken.isNotBlank()) {
-                    addHeader(
-                        "Authorization",
-                        "Bearer $accessToken"
-                    )
-                }
-            }
-            .build()
     }
 
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center
     ) {
-        SubcomposeAsyncImage(
-            model = videoRequest,
-            contentDescription = "فيديو مرسل",
-            contentScale = ContentScale.Crop,
+        InlineVideoPlayer(
+            url = videoUrl,
+            accessToken = accessToken,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 160.dp, max = 300.dp)
-                .clip(RoundedCornerShape(12.dp)),
-            loading = { VideoPlaceholder() },
-            error = { VideoPlaceholder() }
+                .heightIn(min = 180.dp, max = 300.dp)
+                .clip(RoundedCornerShape(12.dp))
         )
 
         if (pending || failed) {
@@ -1807,18 +1960,22 @@ private fun MessageVideo(
                     .clip(RoundedCornerShape(12.dp))
             )
         } else {
-            Box(
+            IconButton(
+                onClick = onOpen,
                 modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f)),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(34.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.45f),
+                        CircleShape
+                    )
             ) {
                 Icon(
-                    Icons.Default.PlayCircle,
-                    contentDescription = "فيديو",
-                    tint = ChatText,
-                    modifier = Modifier.size(40.dp)
+                    Icons.Default.Fullscreen,
+                    contentDescription = "شاشة كاملة",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }

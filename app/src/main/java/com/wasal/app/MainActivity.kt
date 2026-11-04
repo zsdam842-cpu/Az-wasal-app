@@ -326,6 +326,27 @@ private fun WasalHomeScreen(
                                 } finally {
                                     SocketService.disconnect()
                                     authDataStore.clear()
+
+                                    // حذف كل ما حُفظ محلياً من الجلسة السابقة
+                                    // حتى لا تبقى محادثات الحساب القديم على الجهاز.
+                                    runCatching {
+                                        listOf(
+                                            "wasal_conversation_cache",
+                                            "wasal_message_cache",
+                                            "wasal_archived"
+                                        ).forEach { prefsName ->
+                                            context.getSharedPreferences(
+                                                prefsName,
+                                                android.content.Context.MODE_PRIVATE
+                                            ).edit().clear().apply()
+                                        }
+
+                                        java.io.File(
+                                            context.filesDir,
+                                            "voice_cache"
+                                        ).deleteRecursively()
+                                    }
+
                                     selectedConversation = null
                                     conversations = emptyList()
                                     contacts = emptyList()
@@ -1591,6 +1612,31 @@ private fun ConversationFlow(
         },
         onStartVoiceCall = { onStartCall(CallKind.AUDIO) },
         onStartVideoCall = { onStartCall(CallKind.VIDEO) },
+        forwardTargets = conversations
+            .filter { it.id != conversation.id }
+            .map { it.id to it.title },
+        onForwardMessage = { message, targetConversationId ->
+            scope.launch {
+                try {
+                    val token = authDataStore.accessToken.first().orEmpty()
+                    val userId = authDataStore.userId.first().orEmpty()
+
+                    withContext(Dispatchers.IO) {
+                        messageRepository.forwardMessage(
+                            targetConversationId = targetConversationId,
+                            sourceType = message.type,
+                            sourceContent = message.content,
+                            accessToken = token,
+                            currentUserId = userId
+                        ).getOrElse { throw it }
+                    }
+
+                    statusMessage = "تمت إعادة التوجيه."
+                } catch (e: Exception) {
+                    statusMessage = e.message ?: "تعذر إعادة التوجيه."
+                }
+            }
+        },
         onEditMessage = { message, newText ->
             scope.launch {
                 try {
