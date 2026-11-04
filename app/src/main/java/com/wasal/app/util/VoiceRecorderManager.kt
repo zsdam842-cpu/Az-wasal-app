@@ -34,16 +34,33 @@ class VoiceRecorderManager(private val context: Context) {
 
             val newRecorder = MediaRecorder()
 
-            newRecorder.setAudioSource(
+            // مصدر الصوت المخصص للاتصالات يمرّ عبر معالجة الصوت في النظام
+            // (كتم الضجيج وإلغاء الصدى) فتكون الرسالة الصوتية أنقى.
+            val source = if (
+                runCatching {
+                    newRecorder.setAudioSource(
+                        MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                    )
+                }.isSuccess
+            ) {
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            } else {
                 MediaRecorder.AudioSource.MIC
-            )
+            }
+
+            if (source == MediaRecorder.AudioSource.MIC) {
+                newRecorder.setAudioSource(source)
+            }
+
+            newRecorder.setAudioChannels(1)
             newRecorder.setOutputFormat(
                 MediaRecorder.OutputFormat.MPEG_4
             )
             newRecorder.setAudioEncoder(
                 MediaRecorder.AudioEncoder.AAC
             )
-            newRecorder.setAudioEncodingBitRate(96000)
+            // 64 كيلوبت/ثانية أحادي القناة: صوت واضح بملف أصغر بكثير.
+            newRecorder.setAudioEncodingBitRate(64000)
             newRecorder.setAudioSamplingRate(44100)
             newRecorder.setOutputFile(file.absolutePath)
             newRecorder.prepare()

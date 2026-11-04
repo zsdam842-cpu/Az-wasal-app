@@ -290,6 +290,9 @@ private fun WasalHomeScreen(
     val useSystemThemeState by settingsDataStore.useSystemTheme
         .collectAsState(initial = false)
 
+    val dataSaverState by settingsDataStore.dataSaver
+        .collectAsState(initial = false)
+
     val deviceId = remember(context) { wasalDeviceId(context) }
 
     val authRepository = remember(authDataStore) {
@@ -1051,6 +1054,12 @@ private fun WasalHomeScreen(
                                 settingsDataStore.setUseSystemTheme(enabled)
                             }
                         },
+                        dataSaver = dataSaverState,
+                        onToggleDataSaver = { enabled ->
+                            scope.launch {
+                                settingsDataStore.setDataSaver(enabled)
+                            }
+                        },
                         onBioSave = { newBio ->
                             scope.launch {
                                 if (isSavingBio) {
@@ -1511,12 +1520,47 @@ private fun ConversationFlow(
                     )
                 }
 
+                val pendingType = mediaTypeOf(
+                    runCatching {
+                        context.contentResolver.getType(uri)
+                    }.getOrNull().orEmpty()
+                )
+
+                val sendLabel = if (pendingType == "video") {
+                    "الفيديو"
+                } else if (pendingType == "image") {
+                    "الصورة"
+                } else {
+                    "الملف"
+                }
+
+                val notifyStage: (String) -> Unit = { message ->
+                    scope.launch { statusMessage = message }
+                }
+
+                val notifyProgress: (Int) -> Unit = { percent ->
+                    scope.launch {
+                        statusMessage = "جارٍ إرسال $sendLabel... $percent%"
+                    }
+                }
+
                 val uploaded = withContext(Dispatchers.IO) {
-                    mediaRepository.upload(uri)
+                    mediaRepository.upload(
+                        uri = uri,
+                        onStage = notifyStage,
+                        onProgress = notifyProgress
+                    )
                 }
 
                 val media = uploaded.getOrElse {
                     throw it
+                }
+
+                if (media.savedPercent >= 10) {
+                    statusMessage =
+                        "تم الإرسال — وُفّر ${media.savedPercent}% من حجم الملف."
+                } else {
+                    statusMessage = null
                 }
 
                 val sent = withContext(Dispatchers.IO) {

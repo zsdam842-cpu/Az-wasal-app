@@ -78,6 +78,8 @@ fun SettingsScreen(
     useSystemTheme: Boolean = false,
     onToggleDarkMode: (Boolean) -> Unit = {},
     onToggleUseSystemTheme: (Boolean) -> Unit = {},
+    dataSaver: Boolean = false,
+    onToggleDataSaver: (Boolean) -> Unit = {},
     onLogout: () -> Unit = {},
     onBioSave: (String) -> Unit = {},
     onSaveDisplayName: (String) -> Unit = {},
@@ -415,6 +417,67 @@ fun SettingsScreen(
                         onCheckedChange = onToggleUseSystemTheme
                     )
                 }
+            }
+
+            Spacer(Modifier.height(18.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        SetCard,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "البيانات والوسائط",
+                    color = SetMuted,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "توفير البيانات",
+                            color = SetText
+                        )
+
+                        Spacer(Modifier.height(3.dp))
+
+                        Text(
+                            text = if (dataSaver) {
+                                "الصور 1024 بكسل والفيديو 480p — أصغر وأسرع."
+                            } else {
+                                "الصور 1600 بكسل والفيديو 720p بجودة عالية."
+                            },
+                            color = SetMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Switch(
+                        checked = dataSaver,
+                        onCheckedChange = onToggleDataSaver
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Text(
+                    text = if (dataSaver) {
+                        "تُضغط الصور والفيديو قبل الإرسال بدرجة أكبر لتوفير باقة الإنترنت."
+                    } else {
+                        "تُضغط الصور والفيديو تلقائيًا قبل الإرسال، فالإرسال أسرع والبيانات أقل."
+                    },
+                    color = SetMuted,
+                    fontSize = 12.sp
+                )
             }
 
             Spacer(Modifier.height(18.dp))

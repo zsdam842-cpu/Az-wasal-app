@@ -12,8 +12,8 @@ android {
         applicationId = "com.wasal.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 13
-        versionName = "2.4"
+        versionCode = 14
+        versionName = "2.5"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
@@ -53,6 +53,13 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-datasource:1.5.1")
+
+    // ضغط الفيديو قبل الإرسال (إعادة ترميز بأبعاد أصغر)
+    implementation("androidx.media3:media3-transformer:1.5.1")
+    implementation("androidx.media3:media3-effect:1.5.1")
+
+    // قراءة اتجاه الصورة (EXIF) حتى لا تُرسل الصور مقلوبة
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.socket:socket.io-client:2.1.0")

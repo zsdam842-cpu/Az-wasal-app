@@ -169,6 +169,11 @@ class WebRtcEngine(
                 iceTransportsType = PeerConnection.IceTransportsType.ALL
                 continualGatheringPolicy =
                     PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+
+                // مخزن اهتزاز أوسع: يقلّل تقطيع الصوت على الشبكات الضعيفة
+                // بدل أن يسقط الصوت تمامًا عند تأخر الحزم.
+                audioJitterBufferMaxPackets = 200
+                audioJitterBufferFastAccelerate = true
             }
 
             val connection = createdFactory.createPeerConnection(
@@ -198,7 +203,23 @@ class WebRtcEngine(
                 createdFactory.createAudioTrack("wasal-audio", it)
             }
 
-            audioTrack?.let { connection.addTrack(it, listOf("wasal-stream")) }
+            audioTrack?.let { track ->
+                val sender = connection.addTrack(
+                    track,
+                    listOf("wasal-stream")
+                )
+
+                // سقف بِت ريت للصوت: جودة واضحة بلا استهلاك زائد للبيانات.
+                runCatching {
+                    val parameters = sender.parameters
+
+                    parameters.encodings?.forEach { encoding ->
+                        encoding.maxBitrateBps = 32000
+                    }
+
+                    sender.parameters = parameters
+                }
+            }
 
             if (video) {
                 val capturer = createVideoCapturer()

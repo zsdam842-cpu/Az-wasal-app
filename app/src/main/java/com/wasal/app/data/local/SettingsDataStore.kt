@@ -23,6 +23,10 @@ class SettingsDataStore(
     private val useSystemThemeKey =
         booleanPreferencesKey("use_system_theme")
 
+    // توفير البيانات: يضغط الصور والفيديو بدرجة أكبر قبل الإرسال.
+    private val dataSaverKey =
+        booleanPreferencesKey("data_saver")
+
     val notificationsEnabled: Flow<Boolean> =
         context.settingsDataStore.data.map { preferences ->
             preferences[notificationsKey] ?: true
@@ -36,6 +40,11 @@ class SettingsDataStore(
     val useSystemTheme: Flow<Boolean> =
         context.settingsDataStore.data.map { preferences ->
             preferences[useSystemThemeKey] ?: false
+        }
+
+    val dataSaver: Flow<Boolean> =
+        context.settingsDataStore.data.map { preferences ->
+            preferences[dataSaverKey] ?: false
         }
 
     suspend fun setNotificationsEnabled(enabled: Boolean) {
@@ -53,6 +62,12 @@ class SettingsDataStore(
     suspend fun setUseSystemTheme(enabled: Boolean) {
         context.settingsDataStore.edit { preferences ->
             preferences[useSystemThemeKey] = enabled
+        }
+    }
+
+    suspend fun setDataSaver(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[dataSaverKey] = enabled
         }
     }
 }
