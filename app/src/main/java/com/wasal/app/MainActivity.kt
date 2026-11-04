@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -94,8 +95,10 @@ import com.wasal.app.ui.screens.ChatsScreen
 import com.wasal.app.ui.screens.ContactsScreen
 import com.wasal.app.ui.screens.ConversationScreen
 import com.wasal.app.ui.screens.PrivacySecurityScreen
+import com.wasal.app.ui.screens.SecretLoginScreen
 import com.wasal.app.ui.screens.SettingsScreen
 import com.wasal.app.ui.screens.StatusesScreen
+import com.wasal.app.ui.screens.WelcomeScreen
 import com.wasal.app.ui.theme.WasalTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -110,6 +113,15 @@ private val WasalCard = Color(0xFF001636)
 private val WasalAccent = Color(0xFF2BA0FF)
 private val WasalText = Color(0xFFEAF3FF)
 private val WasalMuted = Color(0xFF8FA9C9)
+
+private fun wasalDeviceId(context: Context): String {
+    return runCatching {
+        android.provider.Settings.Secure.getString(
+            context.contentResolver,
+            android.provider.Settings.Secure.ANDROID_ID
+        )
+    }.getOrNull().orEmpty().ifBlank { "unknown-device" }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -277,6 +289,8 @@ private fun WasalHomeScreen(
 
     val useSystemThemeState by settingsDataStore.useSystemTheme
         .collectAsState(initial = false)
+
+    val deviceId = remember(context) { wasalDeviceId(context) }
 
     val authRepository = remember(authDataStore) {
         AuthRepository(authDataStore)
@@ -501,7 +515,9 @@ private fun WasalHomeScreen(
             onWipeSession = {
                 showPrivacy = false
                 wipeSession()
-            }
+            },
+            authRepository = authRepository,
+            deviceId = deviceId
         )
     }
 
@@ -557,6 +573,54 @@ private fun WasalHomeScreen(
         listOf<Conversation>()
         conversations = loaded.filterNot { it.id in archivedConversationIds }
         return loaded
+    }
+
+    // بوابة الدخول: لا ندخل التطبيق مباشرة.
+    // بلا جلسة يظهر خياران — الدخول بالرمز السري أو تسجيل جديد.
+    var sessionChecked by remember { mutableStateOf(false) }
+    var entryMode by remember { mutableIntStateOf(0) } // 0 خيارات، 1 جديد، 2 سري، 3 داخل التطبيق
+
+    LaunchedEffect(Unit) {
+        val existingUser = authDataStore.userId.first().orEmpty()
+        sessionChecked = true
+
+        if (existingUser.isNotBlank()) {
+            entryMode = 3
+        }
+    }
+
+    if (!sessionChecked) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color(0xFF00112E)),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF2BA0FF))
+        }
+
+        return
+    }
+
+    if (entryMode == 2) {
+        SecretLoginScreen(
+            authRepository = authRepository,
+            deviceId = deviceId,
+            deviceName = android.os.Build.MODEL ?: "هاتف",
+            onSuccess = { entryMode = 3 },
+            onBack = { entryMode = 0 }
+        )
+
+        return
+    }
+
+    if (entryMode == 0) {
+        WelcomeScreen(
+            onSecretLogin = { entryMode = 2 },
+            onNewAccount = { entryMode = 1 }
+        )
+
+        return
     }
 
     LaunchedEffect(authDataStore) {

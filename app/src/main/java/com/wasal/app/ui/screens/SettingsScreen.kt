@@ -38,6 +38,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasal.app.ui.components.WasalAvatar
+import kotlinx.coroutines.launch
 
 private val SetBackground = Color(0xFF000E26)
 private val SetCard = Color(0xFF001636)
@@ -515,10 +518,47 @@ fun PrivacySecurityScreen(
     wasalCode: String = "",
     isBusy: Boolean = false,
     onBack: () -> Unit = {},
-    onWipeSession: () -> Unit = {}
+    onWipeSession: () -> Unit = {},
+    authRepository: com.wasal.app.data.repository.AuthRepository? = null,
+    deviceId: String = ""
 ) {
     val clipboard = LocalClipboardManager.current
     var showWipeConfirm by remember { mutableStateOf(false) }
+
+    val securityScope = rememberCoroutineScope()
+
+    var hasSecret by remember { mutableStateOf(false) }
+    var remainingChanges by remember { mutableIntStateOf(2) }
+    var deviceBlocked by remember { mutableStateOf(false) }
+    var backupEmail by remember { mutableStateOf("") }
+    var emailDraft by remember { mutableStateOf("") }
+    var emailMessage by remember { mutableStateOf<String?>(null) }
+    var secretMessage by remember { mutableStateOf<String?>(null) }
+    var showSecretDialog by remember { mutableStateOf(false) }
+    var currentSecret by remember { mutableStateOf("") }
+    var newSecret by remember { mutableStateOf("") }
+    var transferCodes by remember {
+        mutableStateOf<List<com.wasal.app.data.repository.AuthRepository.TransferCode>>(
+            emptyList()
+        )
+    }
+    var isSecurityBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(authRepository, deviceId) {
+        val repository = authRepository ?: return@LaunchedEffect
+
+        repository.securityStatus(deviceId).onSuccess { status ->
+            hasSecret = status.hasSecret
+            remainingChanges = status.remainingChanges
+            deviceBlocked = status.deviceBlocked
+            backupEmail = status.backupEmail.orEmpty()
+            emailDraft = status.backupEmail.orEmpty()
+        }
+
+        repository.pendingTransferCodes().onSuccess {
+            transferCodes = it
+        }
+    }
 
     CompositionLocalProvider(
         LocalLayoutDirection provides LayoutDirection.Rtl
@@ -603,6 +643,193 @@ fun PrivacySecurityScreen(
 
             Spacer(Modifier.height(14.dp))
 
+            // ---- رمز التأكيد القادم من هاتف آخر ----
+            if (transferCodes.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SetCard, RoundedCornerShape(16.dp))
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = "طلب دخول من هاتف آخر",
+                        color = SetMuted,
+                        fontSize = 13.sp
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    transferCodes.forEach { request ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${request.deviceName}  ·  ${request.code}",
+                                color = SetText,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    clipboard.setText(
+                                        AnnotatedString(request.code)
+                                    )
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "نسخ رمز التأكيد",
+                                    tint = SetAccent
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "أدخل هذا الرمز في الهاتف الجديد لإتمام الدخول. " +
+                            "لا تعطه لأي شخص لا تعرفه.",
+                        color = SetMuted,
+                        fontSize = 12.sp
+                    )
+                }
+
+                Spacer(Modifier.height(14.dp))
+            }
+
+            // ---- الرمز السري (٦ خانات فأكثر) ----
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SetCard, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "رمز الدخول السري",
+                    color = SetMuted,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = when {
+                        deviceBlocked ->
+                            "تم حظر تغيير الرمز السري على هذا الهاتف."
+                        hasSecret ->
+                            "الرمز السري مفعّل. المتبقي لك ${remainingChanges} " +
+                                "من أصل تغييرين على هذا الهاتف."
+                        else ->
+                            "لم تعيّن رمزاً سرياً بعد. عيّنه لتستطيع الدخول من هاتف آخر."
+                    },
+                    color = SetText,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        secretMessage = null
+                        showSecretDialog = true
+                    },
+                    enabled = !isSecurityBusy && !deviceBlocked &&
+                        (authRepository != null),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        text = if (hasSecret) "تغيير الرمز السري" else "تعيين رمز سري",
+                        color = SetText
+                    )
+                }
+
+                secretMessage?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(text = it, color = SetMuted, fontSize = 12.sp)
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            // ---- البريد الاحتياطي الاختياري ----
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SetCard, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "البريد الاحتياطي (اختياري)",
+                    color = SetMuted,
+                    fontSize = 13.sp
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = "يُستخدم لاستعادة محادثاتك عند الانتقال لهاتف جديد.",
+                    color = SetText,
+                    fontSize = 12.sp
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = emailDraft,
+                    onValueChange = { emailDraft = it.trim() },
+                    singleLine = true,
+                    enabled = !isSecurityBusy,
+                    placeholder = { Text("name@example.com", color = SetMuted) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        val repository = authRepository ?: return@OutlinedButton
+                        isSecurityBusy = true
+                        emailMessage = null
+
+                        securityScope.launch {
+                            repository.setBackupEmail(emailDraft)
+                                .onSuccess {
+                                    backupEmail = it
+                                    emailDraft = it
+                                    emailMessage = if (it.isBlank()) {
+                                        "تم حذف البريد الاحتياطي."
+                                    } else {
+                                        "تم حفظ البريد الاحتياطي."
+                                    }
+                                }
+                                .onFailure {
+                                    emailMessage = it.message
+                                }
+
+                            isSecurityBusy = false
+                        }
+                    },
+                    enabled = !isSecurityBusy && authRepository != null,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        text = if (backupEmail.isBlank()) "حفظ البريد" else "تحديث البريد",
+                        color = SetText
+                    )
+                }
+
+                emailMessage?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(text = it, color = SetMuted, fontSize = 12.sp)
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -644,6 +871,98 @@ fun PrivacySecurityScreen(
 
             Spacer(Modifier.height(18.dp))
         }
+    }
+
+    if (showSecretDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isSecurityBusy) showSecretDialog = false },
+            title = {
+                Text(if (hasSecret) "تغيير الرمز السري" else "تعيين الرمز السري")
+            },
+            text = {
+                Column {
+                    if (hasSecret) {
+                        OutlinedTextField(
+                            value = currentSecret,
+                            onValueChange = { currentSecret = it },
+                            singleLine = true,
+                            label = { Text("الرمز السري الحالي") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    OutlinedTextField(
+                        value = newSecret,
+                        onValueChange = { newSecret = it },
+                        singleLine = true,
+                        label = { Text("الرمز السري الجديد (٦ خانات فأكثر)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        text = "تنبيه: تغيير الرمز مسموح مرتين فقط على هذا الهاتف، " +
+                            "وبعدها يُحظر التغيير من نفس الجهاز.",
+                        color = SetMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val repository = authRepository ?: return@TextButton
+
+                        isSecurityBusy = true
+
+                        securityScope.launch {
+                            val result = if (hasSecret) {
+                                repository.changeSecret(
+                                    currentSecret = currentSecret,
+                                    newSecret = newSecret,
+                                    deviceId = deviceId
+                                )
+                            } else {
+                                repository.setSecret(newSecret)
+                                    .map { remainingChanges }
+                            }
+
+                            result.onSuccess { remaining ->
+                                remainingChanges = remaining
+                                hasSecret = true
+                                secretMessage =
+                                    "تم تحديث الرمز السري. المتبقي: $remaining"
+                                showSecretDialog = false
+                                currentSecret = ""
+                                newSecret = ""
+                            }.onFailure {
+                                secretMessage = it.message
+                            }
+
+                            isSecurityBusy = false
+
+                            repository.securityStatus(deviceId).onSuccess { status ->
+                                remainingChanges = status.remainingChanges
+                                deviceBlocked = status.deviceBlocked
+                            }
+                        }
+                    },
+                    enabled = !isSecurityBusy && newSecret.length >= 6
+                ) {
+                    Text("حفظ")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showSecretDialog = false },
+                    enabled = !isSecurityBusy
+                ) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 
     if (showWipeConfirm) {
