@@ -4,6 +4,7 @@ package com.wasal.app.data.repository
 import com.wasal.app.data.local.AuthDataStore
 import com.wasal.app.data.network.CoreApiClient
 import com.wasal.app.data.network.ServerConfig
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
