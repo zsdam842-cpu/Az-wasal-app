@@ -187,17 +187,17 @@ fun CallScreen(
 
             Spacer(Modifier.height(24.dp))
         }
-    }
 
-    // صورة الكاميرا الخاصة بي: معاينة صغيرة أسفل الشاشة فوق شاشة الطرف الآخر.
-    if (state.kind == CallKind.VIDEO && showVideo) {
-        LocalPreview(
-            manager = manager,
-            visible = state.cameraEnabled,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 150.dp)
-        )
+        // صورة الكاميرا الخاصة بي: معاينة صغيرة أسفل الشاشة فوق شاشة الطرف الآخر.
+        if (state.kind == CallKind.VIDEO && showVideo) {
+            LocalPreview(
+                manager = manager,
+                visible = state.cameraEnabled,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 150.dp)
+            )
+        }
     }
 
     // إغلاق الشاشة تلقائيًا بعد انتهاء المكالمة.
